@@ -46,17 +46,24 @@ genuinely need your eye. Be realistic about which is which:
   CSVs. See `ilastik/README_ilastik_pipeline.md`. This is the recommended route
   for the organelle work at your scale (972 images).
 
-## Step 0 — Calibrate (do NOT skip)
+## Step 0 — Calibration (mostly automatic here)
 
-Every area/width/distance is meaningless without the correct **pixel size**
-(µm/pixel). Find it from:
-- the TIFF metadata (FEI/Gatan TEMs embed it), or
-- a scale bar: draw a line along it, note its pixel length, divide the known
-  length by that.
+Every area/width/distance depends on the correct **pixel size** (µm/pixel).
+**Check which case you're in:** open one TIFF → `Image ▸ Properties`.
 
-Set `PIXEL_SIZE_UM` in `TEM_Batch_Auto.ijm`. In the interactive macro use
-action **[1]**. **If magnifications are mixed, process each magnification
-separately** — one pixel size cannot be right for all of them.
+- **Pixel width shows a real value + a unit (micron/nm)** → the scale is in the
+  metadata. The macros **read it automatically, per image** (`USE_EMBEDDED_SCALE`
+  is on), and normalise nm/Å to microns. Mixed magnifications just work, since
+  each image uses its own scale. Nothing to set. `TEM_Batch_Auto.ijm` records a
+  `ScaleSource` column and warns if any image lacked a scale.
+- **Pixel width shows `1 pixel`** → the scale is only a *drawn scale bar*, which
+  ImageJ can't read. Measure the bar once (line tool → its pixel length), set
+  `PIXEL_SIZE_UM` in the macros as the fallback, or use interactive action
+  **[1]**. If magnifications are mixed here, process each separately.
+
+> The ilastik label images lose the original scale, so
+> `TEM_Measure_From_Ilastik.ijm` asks for your **original TIFF root** and reads
+> the real scale from each matching original automatically.
 
 ## Workflow
 

@@ -24,7 +24,13 @@
 // =============================================================================
 
 // -------------------- USER SETTINGS --------------------
-var PIXEL_SIZE_UM   = 0.005;   // <-- EDIT: microns per pixel for this dataset
+// Your TIFFs carry the scale in their metadata, so leave USE_EMBEDDED_SCALE
+// true: each image is measured with its OWN embedded pixel size (this also
+// handles mixed magnifications automatically). PIXEL_SIZE_UM is only a FALLBACK
+// used for any image that opens uncalibrated (unit = pixel). nm/Angstrom units
+// are converted to microns so all outputs are in um / um^2.
+var USE_EMBEDDED_SCALE = true;
+var PIXEL_SIZE_UM   = 0.005;   // FALLBACK only (used if an image has no scale)
 var UNIT            = "micron";
 var MIN_NUC_UM2     = 2.0;     // ignore objects smaller than this as nuclei
 var MAX_NUC_FRAC    = 0.95;    // ignore objects bigger than 95% of frame (junk)
@@ -58,6 +64,10 @@ Table.save(outDir + "TEM_Batch_NucleusChromatin.csv");
 setBatchMode(false);
 showMessage("Batch complete",
     "Processed " + doneCount + " / " + fileCount + " images.\n" +
+    (fallbackCount > 0 ?
+        ">> WARNING: " + fallbackCount + " image(s) had NO embedded scale and\n" +
+        "   used the fallback PIXEL_SIZE_UM. Check the ScaleSource column;\n" +
+        "   'fallback' rows may have wrong areas/distances.\n" : "") +
     "Results: " + outDir + "TEM_Batch_NucleusChromatin.csv" +
     (SAVE_QC ? "\nQC overlays: " + outDir + QC_SUBDIR : ""));
 
@@ -77,6 +87,34 @@ function processTree(dir) {
 function isTiff(name) {
     n = toLowerCase(name);
     return endsWith(n, ".tif") || endsWith(n, ".tiff");
+}
+// Use the image's embedded scale when present (converting nm/Angstrom to um);
+// otherwise fall back to PIXEL_SIZE_UM. Returns "embedded" or "fallback".
+var fallbackCount = 0;
+function applyCalibration() {
+    if (USE_EMBEDDED_SCALE && normalizeToMicron()) return "embedded";
+    setVoxelSize(PIXEL_SIZE_UM, PIXEL_SIZE_UM, 1, "micron");
+    fallbackCount++;
+    return "fallback";
+}
+// If the image is calibrated in a length unit, convert its scale to microns
+// and return true. If it is uncalibrated (unit = pixel) or unknown, return false.
+function normalizeToMicron() {
+    getPixelSize(unit, pw, ph);
+    u = toLowerCase(unit);
+    if (u == "micron" || u == "microns" || u == "um" || u == "µm" || u == "microns/pixel")
+        return (pw != 1 || u != "pixel");                 // already microns
+    factor = 0;
+    if (u == "nm" || u == "nanometer" || u == "nanometre" || u == "nanometers")
+        factor = 1.0/1000.0;
+    else if (u == "a" || u == "angstrom" || u == "ang" || u == "å" || u == "Å")
+        factor = 1.0/10000.0;
+    else if (u == "mm" || u == "millimeter")
+        factor = 1000.0;
+    else
+        return false;                                     // pixel / unknown
+    setVoxelSize(pw * factor, ph * factor, 1, "micron");
+    return true;
 }
 // pre-count all TIFFs under a folder tree (for progress display)
 function countTiffs(dir) {
@@ -100,9 +138,10 @@ function processImage(path, dir, name) {
 
     open(path);
     if (bitDepth() == 24) run("8-bit");           // TEM should be grayscale
-    setVoxelSize(PIXEL_SIZE_UM, PIXEL_SIZE_UM, 1, UNIT);
+    calFrom = applyCalibration();                 // "embedded" or "fallback"
+    getPixelSize(u, pw, ph);
     w = getWidth(); h = getHeight();
-    frameArea = w * h * PIXEL_SIZE_UM * PIXEL_SIZE_UM;
+    frameArea = w * h * pw * ph;
 
     // ---- auto-segment the nucleus ----
     // work on a smoothed duplicate so texture doesn't fragment the region
@@ -120,7 +159,7 @@ function processImage(path, dir, name) {
         "area mean standard min centroid perimeter shape redirect=None decimal=4");
     roiManager("reset");
     run("Analyze Particles...",
-        "size=" + MIN_NUC_UM2 + "-Infinity pixel circularity=0.1-1.00 " +
+        "size=" + MIN_NUC_UM2 + "-Infinity circularity=0.1-1.00 " +
         "show=Nothing add");
     nRoi = roiManager("count");
     bestRoi = -1; bestArea = 0;
@@ -133,6 +172,8 @@ function processImage(path, dir, name) {
     row = Table.size("BatchResults");
     Table.set("Image",  row, name,          "BatchResults");
     Table.set("Folder", row, relPath(dir),  "BatchResults");
+    Table.set("PixelSize_um", row, pw,      "BatchResults");
+    Table.set("ScaleSource",  row, calFrom, "BatchResults");
 
     if (bestRoi < 0) {
         Table.set("Status", row, "no_nucleus_found", "BatchResults");

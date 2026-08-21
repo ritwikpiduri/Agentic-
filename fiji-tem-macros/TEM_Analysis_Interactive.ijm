@@ -394,12 +394,26 @@ function setStdMeasurements() {
         "area mean min centroid perimeter shape redirect=None decimal=3");
 }
 function requireCalibration() {
+    normalizeToMicron();                 // use embedded nm/Angstrom scale as um
     getPixelSize(unit, pw, ph);
     if (pw == 1 && (unit == "pixel" || unit == "pixels" || unit=="")) {
         showMessage("Not calibrated",
-            "Image is in pixels. Run action [1] to set the scale first, or\n" +
+            "Image is in pixels (the scale is not in the metadata - maybe it's\n" +
+            "only a drawn scale bar). Run action [1] to set the scale first, or\n" +
             "areas/distances will be in pixels, not microns.");
     }
+}
+// convert an embedded length-unit scale to microns; leave pixels/unknown as-is
+function normalizeToMicron() {
+    getPixelSize(unit, pw, ph);
+    u = toLowerCase(unit);
+    if (u == "micron" || u == "microns" || u == "um" || u == "µm") return;
+    if (u == "nm" || u == "nanometer" || u == "nanometre" || u == "nanometers")
+        setVoxelSize(pw/1000.0, ph/1000.0, 1, "micron");
+    else if (u == "a" || u == "angstrom" || u == "ang" || u == "å")
+        setVoxelSize(pw/10000.0, ph/10000.0, 1, "micron");
+    else if (u == "mm" || u == "millimeter")
+        setVoxelSize(pw*1000.0, ph*1000.0, 1, "micron");
 }
 function lineLengthCalibrated(x1, y1, x2, y2) {
     getPixelSize(unit, pw, ph);

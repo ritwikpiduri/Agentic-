@@ -39,9 +39,19 @@ var MIN_NUC_UM2   = 2.0;      // min area to count something as a nucleus
 // -------------------------------------------------------
 
 var DMAP_TITLE = "__nucDistMap";
+var ORIG_ROOT  = "";         // set below; used to read the real scale per image
+var fallbackCount = 0;
 
 setBatchMode(true);
 segRoot = getDirectory("Choose the folder of ilastik SEGMENTATION images");
+// ilastik label images lose the original scale, so read it from the ORIGINAL
+// TIFFs (which carry it in their metadata). Point to the raw dataset root; its
+// folder structure must mirror the segmentation folder.
+showMessage("Original images",
+    "Next, choose the ROOT of your ORIGINAL TIFFs so the real scale can be read\n" +
+    "from each image's metadata. (Cancel to use the PIXEL_SIZE_UM fallback.)");
+ORIG_ROOT = getDirectory("Choose the ORIGINAL TIFF root (or Cancel for fallback)");
+if (ORIG_ROOT == "0" || ORIG_ROOT == "") ORIG_ROOT = "";
 outDir  = getDirectory("Choose an OUTPUT folder for CSVs");
 
 freshTable("Organelles");
@@ -59,7 +69,12 @@ selectWindow("Organelles");   Table.save(outDir + "Organelles.csv");
 selectWindow("Nuclei");       Table.save(outDir + "Nuclei.csv");
 selectWindow("ImageSummary"); Table.save(outDir + "ImageSummary.csv");
 setBatchMode(false);
-showMessage("Done", "Measured " + idx + "/" + total + " images.\nCSVs in:\n" + outDir);
+showMessage("Done", "Measured " + idx + "/" + total + " images.\n" +
+    (fallbackCount > 0 ?
+        ">> " + fallbackCount + " image(s) used the PIXEL_SIZE_UM fallback\n" +
+        "   (no matching original / uncalibrated). Areas & distances for\n" +
+        "   those may be off.\n" : "") +
+    "CSVs in:\n" + outDir);
 
 // =============================================================================
 function processTree(dir) {
@@ -77,7 +92,7 @@ function processSeg(path, dir, name) {
     print("[" + idx + "/" + total + "] " + relPath(dir) + " -> " + name);
     open(path);
     if (bitDepth() == 24) run("8-bit");
-    setVoxelSize(PIXEL_SIZE_UM, PIXEL_SIZE_UM, 1, UNIT);
+    calibrateSegFromOriginal(dir, name);   // sets real scale on the seg image
     seg = getTitle();
 
     // ---- nucleus: distance map + shape + count ----
@@ -191,15 +206,65 @@ function buildNucleusDistanceMap(seg, val) {
 }
 function distanceFromEdge(cx, cy) {
     if (!isOpen(DMAP_TITLE)) return NaN;
-    px = round(cx / PIXEL_SIZE_UM); py = round(cy / PIXEL_SIZE_UM);
     cur = getTitle();
     selectWindow(DMAP_TITLE);
+    getPixelSize(u, pw, ph);                  // real scale carried on the map
+    px = round(cx / pw); py = round(cy / ph);
     if (px < 0) px = 0; if (py < 0) py = 0;
     if (px >= getWidth())  px = getWidth() - 1;
     if (py >= getHeight()) py = getHeight() - 1;
     dpx = getPixel(px, py);
     selectWindow(cur);
-    return dpx * PIXEL_SIZE_UM;
+    return dpx * pw;
+}
+// Read the true pixel size from the matching ORIGINAL TIFF and stamp it on the
+// currently-open segmentation image. Falls back to PIXEL_SIZE_UM if no original
+// is found or it is uncalibrated.
+function calibrateSegFromOriginal(dir, name) {
+    pw = PIXEL_SIZE_UM; src = "fallback";
+    if (ORIG_ROOT != "") {
+        op = originalPath(dir, name);
+        if (op != "") {
+            seg = getTitle();
+            open(op);
+            if (normalizeToMicron()) { getPixelSize(u, p2, ph2); pw = p2; src = "embedded"; }
+            close();                       // close the original
+            selectWindow(seg);
+        }
+    }
+    if (src == "fallback") fallbackCount++;
+    setVoxelSize(pw, pw, 1, "micron");
+    return pw;
+}
+// map a segmentation path (…/base_seg.tif) back to its original TIFF under ORIG_ROOT
+function originalPath(dir, name) {
+    relDir = substring(dir, lengthOf(segRoot));    // path under segRoot
+    b = stripExt(name);
+    if (endsWith(b, "_seg")) b = substring(b, 0, lengthOf(b) - 4);
+    cand = newArray(ORIG_ROOT + relDir + b + ".tif",
+                    ORIG_ROOT + relDir + b + ".tiff",
+                    ORIG_ROOT + relDir + b + ".TIF",
+                    ORIG_ROOT + relDir + b + ".TIFF");
+    for (i = 0; i < cand.length; i++) if (File.exists(cand[i])) return cand[i];
+    return "";
+}
+function stripExt(nm) { d = lastIndexOf(nm, "."); return (d > 0) ? substring(nm, 0, d) : nm; }
+// convert the open image's calibration to microns; false if uncalibrated
+function normalizeToMicron() {
+    getPixelSize(unit, pw, ph);
+    u = toLowerCase(unit);
+    if (u == "micron" || u == "microns" || u == "um" || u == "µm")
+        return (pw != 1);
+    factor = 0;
+    if (u == "nm" || u == "nanometer" || u == "nanometre" || u == "nanometers")
+        factor = 1.0/1000.0;
+    else if (u == "a" || u == "angstrom" || u == "ang" || u == "å")
+        factor = 1.0/10000.0;
+    else if (u == "mm" || u == "millimeter")
+        factor = 1000.0;
+    else return false;
+    setVoxelSize(pw * factor, ph * factor, 1, "micron");
+    return true;
 }
 
 // ---- small utilities ----
