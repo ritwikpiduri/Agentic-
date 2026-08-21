@@ -43,6 +43,7 @@ setBatchMode(true);
 root = getDirectory("Choose the ROOT folder of the TEM dataset");
 outDir = getDirectory("Choose an OUTPUT folder for results");
 if (SAVE_QC) File.makeDirectory(outDir + QC_SUBDIR);
+loadCalibration(findCalib(root, outDir));   // magnification -> pixel-size table
 
 if (isOpen("BatchResults")) { selectWindow("BatchResults"); run("Close"); }
 Table.create("BatchResults");
@@ -88,14 +89,68 @@ function isTiff(name) {
     n = toLowerCase(name);
     return endsWith(n, ".tif") || endsWith(n, ".tiff");
 }
-// Use the image's embedded scale when present (converting nm/Angstrom to um);
-// otherwise fall back to PIXEL_SIZE_UM. Returns "embedded" or "fallback".
+// Calibration priority: (1) embedded metadata scale, (2) magnification read
+// from the filename -> pixel size from the calibration table, (3) fallback.
 var fallbackCount = 0;
-function applyCalibration() {
+function applyCalibration() { return applyCalibrationFor(getTitle()); }
+function applyCalibrationFor(name) {
     if (USE_EMBEDDED_SCALE && normalizeToMicron()) return "embedded";
+    mag = parseMag(name);
+    if (mag > 0) {
+        px = pxForMag(mag);
+        if (px > 0) { setVoxelSize(px, px, 1, "micron"); return "mag=" + mag; }
+    }
     setVoxelSize(PIXEL_SIZE_UM, PIXEL_SIZE_UM, 1, "micron");
     fallbackCount++;
     return "fallback";
+}
+// ---- magnification-from-filename calibration table ----
+var CAL_MAG = newArray(0);
+var CAL_PX  = newArray(0);
+function findCalib(root, outDir) {
+    cands = newArray(outDir + "magnification_calibration.csv",
+                     root   + "magnification_calibration.csv");
+    for (i = 0; i < cands.length; i++) if (File.exists(cands[i])) return cands[i];
+    Dialog.create("Calibration table");
+    Dialog.addMessage("magnification_calibration.csv not found in the dataset or\n" +
+                      "output folder. Build it with TEM_Build_Calibration.ijm.");
+    Dialog.addString("Paste full path to it (blank = use fallback pixel size):", "", 60);
+    Dialog.show();
+    return String.trim(Dialog.getString());
+}
+function loadCalibration(path) {
+    CAL_MAG = newArray(0); CAL_PX = newArray(0);
+    if (path == "" || !File.exists(path)) { print("No calibration table loaded."); return false; }
+    lines = split(File.openAsString(path), "\n");
+    for (i = 0; i < lines.length; i++) {
+        ln = String.trim(lines[i]);
+        if (ln == "") continue;
+        c = split(ln, ",");
+        if (c.length < 2) continue;
+        a = String.trim(c[0]);
+        if (!matches(a, "[0-9].*")) continue;               // skip header
+        CAL_MAG = Array.concat(CAL_MAG, parseFloat(a));
+        CAL_PX  = Array.concat(CAL_PX, parseFloat(String.trim(c[1])));
+    }
+    print("Loaded " + CAL_MAG.length + " magnification calibrations from " + path);
+    return CAL_MAG.length > 0;
+}
+function pxForMag(mag) {
+    for (i = 0; i < CAL_MAG.length; i++) if (CAL_MAG[i] == mag) return CAL_PX[i];
+    return -1;
+}
+function parseMag(name) {
+    s = name;
+    if (matches(s, ".*[0-9]+[.]?[0-9]*[kK]?[xX].*")) {
+        num = replace(s, ".*?([0-9]+[.]?[0-9]*)([kK]?)[xX].*", "$1");
+        kfl = replace(s, ".*?([0-9]+[.]?[0-9]*)([kK]?)[xX].*", "$2");
+        v = parseFloat(num);
+        if (kfl == "k" || kfl == "K") v = v * 1000;
+        return v;
+    }
+    if (matches(s, ".*[xX][0-9]+.*"))
+        return parseFloat(replace(s, ".*[xX]([0-9]+).*", "$1"));
+    return -1;
 }
 // If the image is calibrated in a length unit, convert its scale to microns
 // and return true. If it is uncalibrated (unit = pixel) or unknown, return false.

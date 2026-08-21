@@ -46,7 +46,28 @@ genuinely need your eye. Be realistic about which is which:
   CSVs. See `ilastik/README_ilastik_pipeline.md`. This is the recommended route
   for the organelle work at your scale (972 images).
 
-## Step 0 — Calibration (mostly automatic here)
+## Step 0 — Calibration by magnification (scale-bar datasets)
+
+**If each image is a different magnification and the scale is only a drawn bar
+(not in the metadata):** build a magnification→pixel-size table once, and the
+macros read the magnification from each filename and apply the right scale.
+
+1. Run **`TEM_Build_Calibration.ijm`**. For each magnification, open one image,
+   draw a line along its scale bar, and enter the bar's real length (e.g.
+   500 nm). It reads the magnification from the filename (correct it if the
+   auto-read is wrong) and writes `magnification_calibration.csv` (see the
+   template in this folder: `magnification,pixel_size_um`).
+2. Put that CSV in your dataset root or output folder. The analysis macros find
+   it automatically and calibrate every image by its filename magnification.
+   Rows with no matching magnification fall back to `PIXEL_SIZE_UM` and are
+   flagged (check the `ScaleSource` column in the batch output).
+
+> The filename magnification parser understands tokens like `5000x`, `x20000`,
+> `20kx`, `Mag5000` (`k` = ×1000). If your naming is different, tell me one
+> example filename and I'll tune it — or just correct the auto-read value in the
+> calibration builder.
+
+## Step 0b — Calibration when the scale IS in the metadata
 
 Every area/width/distance depends on the correct **pixel size** (µm/pixel).
 **Check which case you're in:** open one TIFF → `Image ▸ Properties`.

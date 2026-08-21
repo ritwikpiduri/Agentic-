@@ -53,6 +53,7 @@ showMessage("Original images",
 ORIG_ROOT = getDirectory("Choose the ORIGINAL TIFF root (or Cancel for fallback)");
 if (ORIG_ROOT == "0" || ORIG_ROOT == "") ORIG_ROOT = "";
 outDir  = getDirectory("Choose an OUTPUT folder for CSVs");
+loadCalibration(findCalib(segRoot, outDir));  // magnification -> pixel-size table
 
 freshTable("Organelles");
 freshTable("Nuclei");
@@ -222,6 +223,7 @@ function distanceFromEdge(cx, cy) {
 // is found or it is uncalibrated.
 function calibrateSegFromOriginal(dir, name) {
     pw = PIXEL_SIZE_UM; src = "fallback";
+    // (1) try the original image's embedded metadata scale
     if (ORIG_ROOT != "") {
         op = originalPath(dir, name);
         if (op != "") {
@@ -232,9 +234,54 @@ function calibrateSegFromOriginal(dir, name) {
             selectWindow(seg);
         }
     }
+    // (2) else read magnification from the filename -> calibration table
+    if (src == "fallback") {
+        mag = parseMag(name);
+        if (mag > 0) { px = pxForMag(mag); if (px > 0) { pw = px; src = "mag=" + mag; } }
+    }
     if (src == "fallback") fallbackCount++;
     setVoxelSize(pw, pw, 1, "micron");
     return pw;
+}
+// ---- magnification-from-filename calibration table ----
+var CAL_MAG = newArray(0);
+var CAL_PX  = newArray(0);
+function findCalib(root, outDir) {
+    cands = newArray(outDir + "magnification_calibration.csv",
+                     root   + "magnification_calibration.csv");
+    for (i = 0; i < cands.length; i++) if (File.exists(cands[i])) return cands[i];
+    Dialog.create("Calibration table");
+    Dialog.addString("Path to magnification_calibration.csv (blank = fallback):", "", 60);
+    Dialog.show();
+    return String.trim(Dialog.getString());
+}
+function loadCalibration(path) {
+    CAL_MAG = newArray(0); CAL_PX = newArray(0);
+    if (path == "" || !File.exists(path)) return false;
+    lines = split(File.openAsString(path), "\n");
+    for (i = 0; i < lines.length; i++) {
+        ln = String.trim(lines[i]); if (ln == "") continue;
+        c = split(ln, ","); if (c.length < 2) continue;
+        a = String.trim(c[0]); if (!matches(a, "[0-9].*")) continue;
+        CAL_MAG = Array.concat(CAL_MAG, parseFloat(a));
+        CAL_PX  = Array.concat(CAL_PX, parseFloat(String.trim(c[1])));
+    }
+    return CAL_MAG.length > 0;
+}
+function pxForMag(mag) {
+    for (i = 0; i < CAL_MAG.length; i++) if (CAL_MAG[i] == mag) return CAL_PX[i];
+    return -1;
+}
+function parseMag(name) {
+    s = name;
+    if (matches(s, ".*[0-9]+[.]?[0-9]*[kK]?[xX].*")) {
+        num = replace(s, ".*?([0-9]+[.]?[0-9]*)([kK]?)[xX].*", "$1");
+        kfl = replace(s, ".*?([0-9]+[.]?[0-9]*)([kK]?)[xX].*", "$2");
+        v = parseFloat(num); if (kfl == "k" || kfl == "K") v = v * 1000; return v;
+    }
+    if (matches(s, ".*[xX][0-9]+.*"))
+        return parseFloat(replace(s, ".*[xX]([0-9]+).*", "$1"));
+    return -1;
 }
 // map a segmentation path (…/base_seg.tif) back to its original TIFF under ORIG_ROOT
 function originalPath(dir, name) {

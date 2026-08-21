@@ -397,10 +397,21 @@ function requireCalibration() {
     normalizeToMicron();                 // use embedded nm/Angstrom scale as um
     getPixelSize(unit, pw, ph);
     if (pw == 1 && (unit == "pixel" || unit == "pixels" || unit=="")) {
+        // no metadata scale -> try magnification from the filename
+        ensureCalibLoaded();
+        mag = parseMag(getTitle());
+        if (mag > 0) {
+            px = pxForMag(mag);
+            if (px > 0) {
+                setVoxelSize(px, px, 1, "micron");
+                showStatus("Calibrated from filename: mag " + mag + "x = " + px + " um/px");
+                return;
+            }
+        }
         showMessage("Not calibrated",
-            "Image is in pixels (the scale is not in the metadata - maybe it's\n" +
-            "only a drawn scale bar). Run action [1] to set the scale first, or\n" +
-            "areas/distances will be in pixels, not microns.");
+            "No metadata scale, and magnification not found in the table.\n" +
+            "Build magnification_calibration.csv with TEM_Build_Calibration.ijm,\n" +
+            "or use action [1] to set the scale manually from the bar.");
     }
 }
 // convert an embedded length-unit scale to microns; leave pixels/unknown as-is
@@ -414,6 +425,52 @@ function normalizeToMicron() {
         setVoxelSize(pw/10000.0, ph/10000.0, 1, "micron");
     else if (u == "mm" || u == "millimeter")
         setVoxelSize(pw*1000.0, ph*1000.0, 1, "micron");
+}
+// ---- magnification-from-filename calibration table (loaded once) ----
+var CAL_LOADED = false;
+var CAL_MAG = newArray(0);
+var CAL_PX  = newArray(0);
+function ensureCalibLoaded() {
+    if (CAL_LOADED) return;
+    CAL_LOADED = true;
+    path = "";
+    d = getDirectory("image");           // search image folder and two parents
+    if (d != "") {
+        cands = newArray(d + "magnification_calibration.csv",
+                         d + "../magnification_calibration.csv",
+                         d + "../../magnification_calibration.csv");
+        for (i = 0; i < cands.length; i++) if (File.exists(cands[i])) { path = cands[i]; i = cands.length; }
+    }
+    if (path == "") {
+        Dialog.create("Calibration table");
+        Dialog.addString("Path to magnification_calibration.csv (blank = skip):", "", 60);
+        Dialog.show();
+        path = String.trim(Dialog.getString());
+    }
+    if (path == "" || !File.exists(path)) return;
+    lines = split(File.openAsString(path), "\n");
+    for (i = 0; i < lines.length; i++) {
+        ln = String.trim(lines[i]); if (ln == "") continue;
+        c = split(ln, ","); if (c.length < 2) continue;
+        a = String.trim(c[0]); if (!matches(a, "[0-9].*")) continue;
+        CAL_MAG = Array.concat(CAL_MAG, parseFloat(a));
+        CAL_PX  = Array.concat(CAL_PX, parseFloat(String.trim(c[1])));
+    }
+}
+function pxForMag(mag) {
+    for (i = 0; i < CAL_MAG.length; i++) if (CAL_MAG[i] == mag) return CAL_PX[i];
+    return -1;
+}
+function parseMag(name) {
+    s = name;
+    if (matches(s, ".*[0-9]+[.]?[0-9]*[kK]?[xX].*")) {
+        num = replace(s, ".*?([0-9]+[.]?[0-9]*)([kK]?)[xX].*", "$1");
+        kfl = replace(s, ".*?([0-9]+[.]?[0-9]*)([kK]?)[xX].*", "$2");
+        v = parseFloat(num); if (kfl == "k" || kfl == "K") v = v * 1000; return v;
+    }
+    if (matches(s, ".*[xX][0-9]+.*"))
+        return parseFloat(replace(s, ".*[xX]([0-9]+).*", "$1"));
+    return -1;
 }
 function lineLengthCalibrated(x1, y1, x2, y2) {
     getPixelSize(unit, pw, ph);
