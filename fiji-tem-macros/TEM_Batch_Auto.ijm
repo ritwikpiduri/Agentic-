@@ -175,10 +175,13 @@ function normalizeToMicron() {
 }
 // pre-count all TIFFs under a folder tree (for progress display)
 function countTiffs(dir) {
-    c = 0; list = getFileList(dir);
+    c = 0;
+    list = getFileList(dir);
     for (i = 0; i < list.length; i++) {
-        if (endsWith(list[i], "/")) c += countTiffs(dir + list[i]);
-        else if (isTiff(list[i])) c++;
+        if (endsWith(list[i], "/"))
+            c = c + countTiffs(dir + list[i]);
+        else if (isTiff(list[i]))
+            c = c + 1;
     }
     return c;
 }
