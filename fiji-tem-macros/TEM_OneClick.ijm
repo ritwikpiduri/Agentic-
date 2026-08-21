@@ -103,8 +103,9 @@ function processOne(path, dir, name) {
     }
 
     row = Table.size("Results_TEM");
+    fld = folderOf(dir);
     Table.set("Image", row, name, "Results_TEM");
-    Table.set("Folder", row, folderOf(dir), "Results_TEM");
+    Table.set("Folder", row, fld, "Results_TEM");
     Table.set("ScaleSource", row, scaleSource, "Results_TEM");
 
     if (best < 0) {
