@@ -53,8 +53,10 @@ run("Set Measurements...",
 
 var fileCount = 0;
 var doneCount = 0;
-var totalTiffs = countTiffs(root);   // pre-count so we can show "X of TOTAL"
-var startTime  = getTime();
+var totalTiffs = 0;
+var startTime  = 0;
+totalTiffs = countTiffs(root);   // pre-count so we can show "X of TOTAL"
+startTime  = getTime();
 print("\\Clear");
 print("=== TEM batch: " + totalTiffs + " TIFF images found under ===");
 print(root);

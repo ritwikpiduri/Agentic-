@@ -60,8 +60,9 @@ freshTable("Nuclei");
 freshTable("ImageSummary");
 run("Set Measurements...", "area mean centroid perimeter shape redirect=None decimal=4");
 
-var total = countTiffs(segRoot);
+var total = 0;
 var idx = 0;
+total = countTiffs(segRoot);
 print("\\Clear");
 print("Measuring " + total + " segmentation images from ilastik...");
 processTree(segRoot);
