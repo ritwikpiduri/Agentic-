@@ -46,6 +46,11 @@ run("Set Measurements...",
 
 var fileCount = 0;
 var doneCount = 0;
+var totalTiffs = countTiffs(root);   // pre-count so we can show "X of TOTAL"
+var startTime  = getTime();
+print("\\Clear");
+print("=== TEM batch: " + totalTiffs + " TIFF images found under ===");
+print(root);
 processTree(root);
 
 selectWindow("BatchResults");
@@ -73,8 +78,26 @@ function isTiff(name) {
     n = toLowerCase(name);
     return endsWith(n, ".tif") || endsWith(n, ".tiff");
 }
+// pre-count all TIFFs under a folder tree (for progress display)
+function countTiffs(dir) {
+    c = 0; list = getFileList(dir);
+    for (i = 0; i < list.length; i++) {
+        if (endsWith(list[i], "/")) c += countTiffs(dir + list[i]);
+        else if (isTiff(list[i])) c++;
+    }
+    return c;
+}
 
 function processImage(path, dir, name) {
+    // --- progress line: which folder/cell/image, count, and ETA ---
+    elapsed = (getTime() - startTime) / 1000.0;                 // seconds so far
+    rate    = (doneCount > 0) ? elapsed / doneCount : 0;        // s per image
+    etaMin  = (rate * (totalTiffs - fileCount)) / 60.0;         // minutes left
+    showStatus("TEM " + fileCount + "/" + totalTiffs + "  " + name);
+    showProgress(fileCount, totalTiffs);
+    print("[" + fileCount + "/" + totalTiffs + "]  " + relPath(dir) + "  ->  " +
+          name + (rate > 0 ? "   (~" + d2s(etaMin,1) + " min left)" : ""));
+
     open(path);
     if (bitDepth() == 24) run("8-bit");           // TEM should be grayscale
     setVoxelSize(PIXEL_SIZE_UM, PIXEL_SIZE_UM, 1, UNIT);
