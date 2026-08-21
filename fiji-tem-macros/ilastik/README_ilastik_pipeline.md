@@ -113,10 +113,16 @@ Because the pipeline segments the **Nucleus** class, it also reports, per image:
 - **MicronucleusCount** — small separate Nucleus-class bodies
   (`MICRONUC_MIN_UM2` ≤ area < `MIN_NUC_UM2`), written to `Micronuclei.csv`.
 
-For this to catch micronuclei, **paint a few of them as the Nucleus class**
-during ilastik training so they get segmented; size then separates them from
-full nuclei. Tune `MIN_NUC_UM2` / `MICRONUC_MIN_UM2` at the top of the macro to
-your cells.
+You do **not** need to paint micronuclei to catch them: a micronucleus is the
+same chromatin material as the nucleus, so the Nucleus classifier already labels
+it, and size separates it from full nuclei. If you happen to have one in your
+training images, painting it as Nucleus helps, but it isn't required. Tune
+`MIN_NUC_UM2` / `MICRONUC_MIN_UM2` at the top of the macro to your cells.
+
+Because micronuclei are rare, treat `MicronucleusCount` / `Micronuclei.csv` as a
+**shortlist of candidates to eyeball**, not a final count — some entries may be a
+nucleus clipped at the image edge or a nuclear lobe rather than a true
+micronucleus. Confirm the few it flags by eye.
 
 ## What still isn't automatic
 
