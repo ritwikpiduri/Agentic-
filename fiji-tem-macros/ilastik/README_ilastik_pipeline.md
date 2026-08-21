@@ -93,11 +93,11 @@ expects.
    no tracing — with per-object area, circularity, distance to nucleus, and
    near/far, plus nuclear shape and multinucleation.
 
-## 7. Statistics
+## 7. Statistics (in Fiji, no Python)
 
-```bash
-python ../tem_stats.py --dir /path/to/output_csvs
-```
+`Plugins ▸ Macros ▸ Run…` → `../TEM_Stats.ijm`, point it at the CSV folder, and
+type your condition keywords (e.g. `Control,Treated`). It writes a Log report
+and `TEM_Descriptives.csv` / `TEM_Tests.csv`.
 
 ## Validate before you trust it
 

@@ -34,8 +34,12 @@ genuinely need your eye. Be realistic about which is which:
   everything above; appends to per-metric tables you save as CSV.
 - `TEM_Batch_Auto.ijm` — unattended pass over the whole tree for nuclear shape +
   chromatin. Writes `TEM_Batch_NucleusChromatin.csv` and QC overlay PNGs.
-- `tem_stats.py` — aggregates the CSVs and runs group comparisons
-  (Mann-Whitney / Kruskal-Wallis / chi-square).
+- `TEM_Stats.ijm` — **statistics inside Fiji, no Python needed.** Reads the
+  CSVs and runs Mann-Whitney U (numeric) and chi-square (proportions) between
+  your conditions, writing a Log report plus `TEM_Descriptives.csv` /
+  `TEM_Tests.csv`.
+- `tem_stats.py` — *optional* same analysis in Python (only if you have pandas +
+  scipy). Ignore it if you only have ImageJ.
 - `ilastik/` — **automatic organelle detection so you don't trace by hand.**
   Train a classifier once, batch-segment all images, then
   `TEM_Measure_From_Ilastik.ijm` measures counts/area/distance into the same
@@ -72,15 +76,20 @@ separately** — one pixel size cannot be right for all of them.
    persist across images in the same Fiji session.
 3. `[9]` save all CSVs when done (or periodically — it re-writes the same files).
 
-**C. Statistics:**
-```bash
-pip install pandas scipy
-python tem_stats.py --dir /path/to/csv_folder
-```
-Edit `assign_group()` in `tem_stats.py` so it reads your condition label from
-the path (default: top-level folder name). Output flags `*SIGNIFICANT*` at
-p<0.05 — with this many metrics, apply a Benjamini-Hochberg correction before
-reporting.
+**C. Statistics (all in Fiji — no Python):**
+1. `Plugins ▸ Macros ▸ Run…` → `TEM_Stats.ijm`.
+2. Point it at your CSV folder and type your condition keywords, e.g.
+   `Control,Treated` (each data row is assigned to the first keyword found in
+   its Image/Folder/Sample text, so it works whether the condition is in the
+   folder path or the filename).
+3. Read the report in the Log window; `TEM_Descriptives.csv` and
+   `TEM_Tests.csv` are saved next to your data. Numeric metrics use
+   Mann-Whitney U, proportions (multinucleation, near/far) use chi-square.
+   `*SIGNIFICANT*` = p<0.05; with many metrics apply a Benjamini-Hochberg
+   correction before reporting.
+
+> `tem_stats.py` does the same thing in Python but is optional — skip it if you
+> only have ImageJ.
 
 ## Tips & caveats
 

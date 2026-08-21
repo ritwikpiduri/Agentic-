@@ -159,6 +159,7 @@ function measureNuclei(seg, val, img) {
     for (k = 0; k < n; k++) {
         r = Table.size("Nuclei");
         Table.set("Image",       r, img,                   "Nuclei");
+        Table.set("Folder",      r, relPath(_curDir),      "Nuclei");
         Table.set("NucleusIndex",r, k + 1,                 "Nuclei");
         Table.set("Area_um2",    r, getResult("Area", k),  "Nuclei");
         Table.set("Perimeter_um",r, getResult("Perim.", k),"Nuclei");

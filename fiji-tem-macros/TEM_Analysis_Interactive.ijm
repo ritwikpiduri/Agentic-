@@ -140,6 +140,7 @@ function actionNucleus() {
 
     Table.set("Image",        Table.size("Nuclei"), img,                    "Nuclei");
     r = Table.size("Nuclei") - 1;
+    Table.set("Folder",       r, imgFolder(),                               "Nuclei");
     Table.set("NucleusIndex", r, nHere,                                     "Nuclei");
     Table.set("Area_um2",     r, getResult("Area", row),                    "Nuclei");
     Table.set("Perimeter_um", r, getResult("Perim.", row),                  "Nuclei");
@@ -211,6 +212,7 @@ function actionChromatin() {
 
     r = Table.size("Chromatin");
     Table.set("Image",            r, img,        "Chromatin");
+    Table.set("Folder",           r, imgFolder(),"Chromatin");
     Table.set("NucleusMeanGray",  r, nucMean,    "Chromatin");
     Table.set("Threshold",        r, thr,        "Chromatin");
     Table.set("Heterochrom_pct",  r, heteroPct,  "Chromatin");
@@ -242,7 +244,8 @@ function actionPerinuclear() {
             getLine(x1, y1, x2, y2, lw);
             len = lineLengthCalibrated(x1, y1, x2, y2);
             r = Table.size("Perinuclear");
-            Table.set("Image",        r, img,  "Perinuclear");
+            Table.set("Image",        r, img,        "Perinuclear");
+            Table.set("Folder",       r, imgFolder(),"Perinuclear");
             Table.set("Measurement",  r, i,    "Perinuclear");
             Table.set("Width_um",     r, len,  "Perinuclear");
             Table.update("Perinuclear");
@@ -295,6 +298,7 @@ function actionOrganelles() {
             }
             r = Table.size("Organelles");
             Table.set("Image",        r, img,                       "Organelles");
+            Table.set("Folder",       r, imgFolder(),               "Organelles");
             Table.set("Type",         r, otype,                     "Organelles");
             Table.set("Index",        r, idx,                       "Organelles");
             Table.set("Area_um2",     r, getResult("Area", row),    "Organelles");
@@ -332,6 +336,7 @@ function actionMicronuclei() {
             dist = distanceFromNucleusEdge(cx, cy);
             r = Table.size("Micronuclei");
             Table.set("Image",       r, img,                      "Micronuclei");
+            Table.set("Folder",      r, imgFolder(),              "Micronuclei");
             Table.set("Index",       r, idx,                      "Micronuclei");
             Table.set("Area_um2",    r, getResult("Area", row),   "Micronuclei");
             Table.set("Circularity", r, getResult("Circ.", row),  "Micronuclei");
@@ -419,7 +424,18 @@ function countOrganelle(img, otype) {
 }
 // derive a sample/group label from the file path or name; edit to taste
 function guessSample(img) {
-    return img;   // replace with parseable naming if your files encode group
+    return imgFolder();   // condition/cell path of the open image
+}
+// last two path components of the OPEN image's directory (e.g. "Control/cell07")
+// so the stats macro can match your condition keyword to the folder path.
+function imgFolder() {
+    d = getDirectory("image");
+    if (d == "") return "unknown";
+    parts = split(d, "/");
+    n = parts.length;
+    if (n >= 2) return parts[n-2] + "/" + parts[n-1];
+    if (n == 1) return parts[0];
+    return d;
 }
 
 // ---- distance-to-nucleus machinery ----
