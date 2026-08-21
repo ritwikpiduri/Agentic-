@@ -36,6 +36,11 @@ genuinely need your eye. Be realistic about which is which:
   chromatin. Writes `TEM_Batch_NucleusChromatin.csv` and QC overlay PNGs.
 - `tem_stats.py` — aggregates the CSVs and runs group comparisons
   (Mann-Whitney / Kruskal-Wallis / chi-square).
+- `ilastik/` — **automatic organelle detection so you don't trace by hand.**
+  Train a classifier once, batch-segment all images, then
+  `TEM_Measure_From_Ilastik.ijm` measures counts/area/distance into the same
+  CSVs. See `ilastik/README_ilastik_pipeline.md`. This is the recommended route
+  for the organelle work at your scale (972 images).
 
 ## Step 0 — Calibrate (do NOT skip)
 
