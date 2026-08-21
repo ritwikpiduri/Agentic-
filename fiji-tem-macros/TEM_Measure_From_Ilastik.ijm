@@ -35,8 +35,14 @@ var PIXEL_SIZE_UM = 0.005;    // <-- EDIT: microns/pixel (same as segmentation)
 var UNIT          = "micron";
 var NEAR_FAR_UM   = 1.0;      // organelle centroid <= this from nucleus = "near"
 var MIN_OBJ_UM2   = 0.01;     // ignore specks smaller than this (noise)
-var MIN_NUC_UM2   = 2.0;      // min area to count something as a nucleus
+var MIN_NUC_UM2   = 2.0;      // a Nucleus-class object >= this is a real nucleus
+var MICRONUC_MIN_UM2 = 0.05;  // a Nucleus-class object between MICRONUC_MIN and
+                              // MIN_NUC is counted as a MICRONUCLEUS (smaller =
+                              // noise). Multinucleation = more than one real nucleus.
 // -------------------------------------------------------
+// counts filled per image by measureNucleiAndMicro()
+var nNucCount   = 0;
+var nMicroCount = 0;
 
 var DMAP_TITLE = "__nucDistMap";
 var ORIG_ROOT  = "";         // set below; used to read the real scale per image
@@ -57,6 +63,7 @@ loadCalibration(findCalib(segRoot, outDir));  // magnification -> pixel-size tab
 
 freshTable("Organelles");
 freshTable("Nuclei");
+freshTable("Micronuclei");
 freshTable("ImageSummary");
 run("Set Measurements...", "area mean centroid perimeter shape redirect=None decimal=4");
 
@@ -69,6 +76,7 @@ processTree(segRoot);
 
 selectWindow("Organelles");   Table.save(outDir + "Organelles.csv");
 selectWindow("Nuclei");       Table.save(outDir + "Nuclei.csv");
+selectWindow("Micronuclei");  Table.save(outDir + "Micronuclei.csv");
 selectWindow("ImageSummary"); Table.save(outDir + "ImageSummary.csv");
 setBatchMode(false);
 showMessage("Done", "Measured " + idx + "/" + total + " images.\n" +
@@ -97,12 +105,13 @@ function processSeg(path, dir, name) {
     calibrateSegFromOriginal(dir, name);   // sets real scale on the seg image
     seg = getTitle();
 
-    // ---- nucleus: distance map + shape + count ----
+    // ---- nucleus: distance map + shape + count + micronuclei ----
     nucVal = valueForName("Nucleus");
-    nNuclei = 0;
+    nNucCount = 0;
+    nMicroCount = 0;
     haveDmap = false;
     if (nucVal >= 0) {
-        nNuclei = measureNuclei(seg, nucVal, name);
+        measureNucleiAndMicro(seg, nucVal, name);   // fills nNucCount, nMicroCount
         haveDmap = buildNucleusDistanceMap(seg, nucVal);
     }
 
@@ -118,9 +127,9 @@ function processSeg(path, dir, name) {
     r = Table.size("ImageSummary");
     Table.set("Image",            r, name,              "ImageSummary");
     Table.set("Sample",           r, relPath(dir),      "ImageSummary");
-    Table.set("NucleusCount",     r, nNuclei,           "ImageSummary");
-    Table.set("Multinucleated",   r, (nNuclei > 1 ? 1 : 0), "ImageSummary");
-    Table.set("MicronucleusCount",r, 0,                 "ImageSummary");  // see note
+    Table.set("NucleusCount",     r, nNucCount,             "ImageSummary");
+    Table.set("Multinucleated",   r, (nNucCount > 1 ? 1 : 0), "ImageSummary");
+    Table.set("MicronucleusCount",r, nMicroCount,           "ImageSummary");
     Table.set("ER_count",         r, countOf("ER"),          "ImageSummary");
     Table.set("Mito_count",       r, countOf("Mitochondria"),"ImageSummary");
     Table.set("Golgi_count",      r, countOf("Golgi"),       "ImageSummary");
@@ -164,27 +173,46 @@ function measureOrganelleClass(seg, val, oname, img, haveDmap) {
     return n;
 }
 
-function measureNuclei(seg, val, img) {
+// Measure every Nucleus-class object and split by size:
+//   area >= MIN_NUC_UM2                 -> a real NUCLEUS  (Nuclei.csv)
+//   MICRONUC_MIN_UM2 <= area < MIN_NUC  -> a MICRONUCLEUS  (Micronuclei.csv)
+// Sets globals nNucCount and nMicroCount.  Multinucleation = nNucCount > 1.
+function measureNucleiAndMicro(seg, val, img) {
     selectWindow(seg);
     run("Duplicate...", "title=__nuc");
     setThreshold(val, val);
     run("Convert to Mask");
     run("Fill Holes");
     run("Clear Results");
-    run("Analyze Particles...", "size=" + MIN_NUC_UM2 + "-Infinity circularity=0.00-1.00 display clear");
+    run("Analyze Particles...", "size=" + MICRONUC_MIN_UM2 + "-Infinity circularity=0.00-1.00 display clear");
     n = nResults;
+    nNucCount = 0;
+    nMicroCount = 0;
     for (k = 0; k < n; k++) {
-        r = Table.size("Nuclei");
-        Table.set("Image",       r, img,                   "Nuclei");
-        Table.set("Folder",      r, relPath(_curDir),      "Nuclei");
-        Table.set("NucleusIndex",r, k + 1,                 "Nuclei");
-        Table.set("Area_um2",    r, getResult("Area", k),  "Nuclei");
-        Table.set("Perimeter_um",r, getResult("Perim.", k),"Nuclei");
-        Table.set("Circularity", r, getResult("Circ.", k), "Nuclei");
-        Table.set("AspectRatio", r, getResult("AR", k),    "Nuclei");
-        Table.set("Roundness",   r, getResult("Round", k), "Nuclei");
-        Table.set("Solidity",    r, getResult("Solidity", k),"Nuclei");
-        Table.update("Nuclei");
+        a = getResult("Area", k);
+        if (a >= MIN_NUC_UM2) {
+            nNucCount = nNucCount + 1;
+            r = Table.size("Nuclei");
+            Table.set("Image",       r, img,                   "Nuclei");
+            Table.set("Folder",      r, relPath(_curDir),      "Nuclei");
+            Table.set("NucleusIndex",r, nNucCount,             "Nuclei");
+            Table.set("Area_um2",    r, a,                     "Nuclei");
+            Table.set("Perimeter_um",r, getResult("Perim.", k),"Nuclei");
+            Table.set("Circularity", r, getResult("Circ.", k), "Nuclei");
+            Table.set("AspectRatio", r, getResult("AR", k),    "Nuclei");
+            Table.set("Roundness",   r, getResult("Round", k), "Nuclei");
+            Table.set("Solidity",    r, getResult("Solidity", k),"Nuclei");
+            Table.update("Nuclei");
+        } else {
+            nMicroCount = nMicroCount + 1;
+            r = Table.size("Micronuclei");
+            Table.set("Image",       r, img,                   "Micronuclei");
+            Table.set("Folder",      r, relPath(_curDir),      "Micronuclei");
+            Table.set("Index",       r, nMicroCount,           "Micronuclei");
+            Table.set("Area_um2",    r, a,                     "Micronuclei");
+            Table.set("Circularity", r, getResult("Circ.", k), "Micronuclei");
+            Table.update("Micronuclei");
+        }
     }
     selectWindow("__nuc"); close();
     selectWindow(seg);

@@ -106,11 +106,21 @@ segmentation) across conditions. If a class is systematically wrong, add
 training strokes on those cases and re-run steps 4–6 — that loop is much faster
 than tracing 972 images by hand.
 
+## Multinucleation & micronuclei (now automatic here)
+
+Because the pipeline segments the **Nucleus** class, it also reports, per image:
+- **NucleusCount** and **Multinucleated** (more than one full nucleus), and
+- **MicronucleusCount** — small separate Nucleus-class bodies
+  (`MICRONUC_MIN_UM2` ≤ area < `MIN_NUC_UM2`), written to `Micronuclei.csv`.
+
+For this to catch micronuclei, **paint a few of them as the Nucleus class**
+during ilastik training so they get segmented; size then separates them from
+full nuclei. Tune `MIN_NUC_UM2` / `MICRONUC_MIN_UM2` at the top of the macro to
+your cells.
+
 ## What still isn't automatic
 
-- **Perinuclear space width** and **micronuclei** stay in the interactive macro
-  (`../TEM_Analysis_Interactive.ijm`) — they need judgement at high mag. The
-  ImageSummary micronucleus count from this pipeline is 0 by design; fill it
-  from the interactive pass if you need it.
+- **Perinuclear space width** stays in the interactive macro
+  (`../TEM_Analysis_Interactive.ijm`) — it needs judgement at high mag.
 - Ultrastructure *identity* calls should still be confirmed by an EM
   microscopist.
