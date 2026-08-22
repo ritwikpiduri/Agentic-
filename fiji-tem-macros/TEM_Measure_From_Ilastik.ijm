@@ -273,20 +273,23 @@ function calibrateSegFromOriginal(dir, name) {
     return pw;
 }
 // ---- magnification-from-filename calibration table ----
-var CAL_MAG = newArray(0);
-var CAL_PX  = newArray(0);
+// Built-in defaults (microns per pixel) from the microscope calibration.
+// NOTE: 2000x (0.002176) looks inconsistent with the others - verify it.
+// A magnification_calibration.csv in the dataset/output folder overrides these.
+var CAL_MAG = newArray(2000,     2600,     11000,    22000);
+var CAL_PX  = newArray(0.002176, 0.005454, 0.001355, 0.0006479);
 function findCalib(root, outDir) {
+    // a CSV in the dataset/output folder overrides the built-in defaults;
+    // if none is found, return "" and the built-in table is used (no prompt).
     cands = newArray(outDir + "magnification_calibration.csv",
                      root   + "magnification_calibration.csv");
     for (i = 0; i < cands.length; i++) if (File.exists(cands[i])) return cands[i];
-    Dialog.create("Calibration table");
-    Dialog.addString("Path to magnification_calibration.csv (blank = fallback):", "", 60);
-    Dialog.show();
-    return String.trim(Dialog.getString());
+    return "";
 }
 function loadCalibration(path) {
+    // no CSV -> keep the built-in defaults declared above
+    if (path == "" || !File.exists(path)) return CAL_MAG.length > 0;
     CAL_MAG = newArray(0); CAL_PX = newArray(0);
-    if (path == "" || !File.exists(path)) return false;
     lines = split(File.openAsString(path), "\n");
     for (i = 0; i < lines.length; i++) {
         ln = String.trim(lines[i]); if (ln == "") continue;
