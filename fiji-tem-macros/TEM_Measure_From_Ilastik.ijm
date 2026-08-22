@@ -274,10 +274,9 @@ function calibrateSegFromOriginal(dir, name) {
 }
 // ---- magnification-from-filename calibration table ----
 // Built-in defaults (microns per pixel) from the microscope calibration.
-// NOTE: 2000x (0.002176) looks inconsistent with the others - verify it.
 // A magnification_calibration.csv in the dataset/output folder overrides these.
-var CAL_MAG = newArray(2000,     2600,     11000,    22000);
-var CAL_PX  = newArray(0.002176, 0.005454, 0.001355, 0.0006479);
+var CAL_MAG = newArray(2000,   2600,     11000,    22000);
+var CAL_PX  = newArray(0.0072, 0.005454, 0.001355, 0.0006479);
 function findCalib(root, outDir) {
     // a CSV in the dataset/output folder overrides the built-in defaults;
     // if none is found, return "" and the built-in table is used (no prompt).
