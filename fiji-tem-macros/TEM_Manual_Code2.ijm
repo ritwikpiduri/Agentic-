@@ -30,12 +30,13 @@ while (go) {
         Dialog.addMessage("Image: " + getTitle());
         Dialog.addChoice("Action:", newArray(
             "1  Set scale (scale bar)",
-            "2  Trace nucleus (shape + multinucleation)",
+            "2  Trace nucleus (shape + chromatin + multinucleation)",
             "3  Mark organelles (type, size, near/far)",
             "4  Mark micronuclei",
             "5  Membrane / perinuclear thickness",
-            "6  Finish this image (summary row)",
-            "7  Save all CSVs",
+            "6  Nuclear pores (count + density)",
+            "7  Finish this image (summary row)",
+            "8  Save all CSVs",
             "0  Quit"), "1  Set scale (scale bar)");
         Dialog.show();
         c = substring(Dialog.getChoice(), 0, 1);
@@ -44,8 +45,9 @@ while (go) {
         else if (c == "3") actOrganelles();
         else if (c == "4") actMicronuclei();
         else if (c == "5") actMembrane();
-        else if (c == "6") actSummary();
-        else if (c == "7") saveAll();
+        else if (c == "6") actPores();
+        else if (c == "7") actSummary();
+        else if (c == "8") saveAll();
         else if (c == "0") go = false;
     }
 }
@@ -93,6 +95,22 @@ function actNucleus() {
     Table.set("AspectRatio", r, getResult("AR", row), "Nuclei");
     Table.set("Roundness", r, getResult("Round", row), "Nuclei");
     Table.set("Solidity", r, getResult("Solidity", row), "Nuclei");
+    // --- AUTO: heterochromatin (dark) vs euchromatin (light) inside the nucleus ---
+    getStatistics(nArea, nMean, nMin, nMax, nStd);
+    thr = round(nMean - 0.5 * nStd);
+    Roi.getBounds(bx, by, bw, bh);
+    dark = 0; tot = 0;
+    for (yy = by; yy < by + bh; yy++) {
+        for (xx = bx; xx < bx + bw; xx++) {
+            if (Roi.contains(xx, yy)) {
+                tot = tot + 1;
+                if (getPixel(xx, yy) <= thr) dark = dark + 1;
+            }
+        }
+    }
+    het = NaN; if (tot > 0) het = 100.0 * dark / tot;
+    Table.set("Heterochrom_pct", r, het, "Nuclei");
+    Table.set("Euchrom_pct", r, 100 - het, "Nuclei");
     Table.update("Nuclei");
     buildDistMap();     // use this nucleus as the distance reference
     run("Select None");
@@ -194,6 +212,30 @@ function actMembrane() {
     showMessage(n + " thickness measurements recorded.");
 }
 
+function actPores() {
+    if (!checkScale()) return;
+    img = getTitle();
+    setTool("multipoint");
+    waitForUser("Nuclear pores",
+        "With the multi-point tool, CLICK on each nuclear pore along the\n" +
+        "envelope, then click OK. (Every click = one pore.)");
+    if (selectionType() != 10) { showMessage("Use the multi-point tool and click the pores."); return; }
+    getSelectionCoordinates(xs, ys);
+    count = xs.length;
+    perim = nucPerim(img);          // total traced-nucleus envelope length (um)
+    dens = NaN; if (perim > 0) dens = count / perim;
+    r = Table.size("Pores");
+    Table.set("Image", r, img, "Pores");
+    Table.set("PoreCount", r, count, "Pores");
+    Table.set("NucPerimeter_um", r, perim, "Pores");
+    Table.set("Pores_per_um", r, dens, "Pores");
+    Table.update("Pores");
+    run("Select None");
+    showMessage(count + " pores recorded." +
+        (perim > 0 ? "\nDensity = " + d2s(dens,3) + " pores/um of envelope." :
+        "\n(Trace the nucleus first for pore density.)"));
+}
+
 function actSummary() {
     img = getTitle();
     nNuc = countImg("Nuclei", img);
@@ -208,6 +250,7 @@ function actSummary() {
     Table.set("Golgi_count", r, countType(img, "Golgi"), "ImageSummary");
     Table.set("Vacuole_count", r, countType(img, "Vacuole"), "ImageSummary");
     Table.set("Lipid_count", r, countType(img, "LipidBody"), "ImageSummary");
+    Table.set("Pore_count", r, poreCount(img), "ImageSummary");
     Table.update("ImageSummary");
     showMessage("Summary written for " + img + " (" + nNuc + " nucleus/nuclei).");
 }
@@ -218,8 +261,22 @@ function saveAll() {
     saveTab("Organelles", dir);
     saveTab("Micronuclei", dir);
     saveTab("Membrane", dir);
+    saveTab("Pores", dir);
     saveTab("ImageSummary", dir);
     showMessage("Saved all CSVs to:\n" + dir);
+}
+// total perimeter (um) of nuclei traced for this image, for pore density
+function nucPerim(img) {
+    n = Table.size("Nuclei"); s = 0;
+    for (i = 0; i < n; i++)
+        if (Table.getString("Image", i, "Nuclei") == img) s = s + Table.get("Perimeter_um", i, "Nuclei");
+    return s;
+}
+function poreCount(img) {
+    n = Table.size("Pores"); c = 0;
+    for (i = 0; i < n; i++)
+        if (Table.getString("Image", i, "Pores") == img) c = c + Table.get("PoreCount", i, "Pores");
+    return c;
 }
 
 // ---- distance map from the nucleus ROI ----
@@ -260,7 +317,7 @@ function distEdge(cx, cy) {
 
 // ---- helpers ----
 function initTables() {
-    mk("Nuclei"); mk("Organelles"); mk("Micronuclei"); mk("Membrane"); mk("ImageSummary");
+    mk("Nuclei"); mk("Organelles"); mk("Micronuclei"); mk("Membrane"); mk("Pores"); mk("ImageSummary");
 }
 function mk(name) { if (!isOpen(name)) Table.create(name); }
 function setMeas() {
