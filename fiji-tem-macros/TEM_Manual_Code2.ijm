@@ -116,11 +116,10 @@ function actNucleus() {
     n = countRec("Nucleus", _curImg) + 1;
     getStatistics(nArea, nMean, nMin, nMax, nStd);
     thr = round(nMean - 0.5 * nStd);
-    Roi.getBounds(bx, by, bw, bh);
+    // fast chromatin: histogram of the nucleus selection (instant, no pixel loop)
+    getHistogram(hvals, hcounts, 256);
     dark = 0; tot = 0;
-    for (yy = by; yy < by + bh; yy++)
-        for (xx = bx; xx < bx + bw; xx++)
-            if (Roi.contains(xx, yy)) { tot = tot + 1; if (getPixel(xx, yy) <= thr) dark = dark + 1; }
+    for (k = 0; k < hvals.length; k++) { tot = tot + hcounts[k]; if (hvals[k] <= thr) dark = dark + hcounts[k]; }
     het = NaN; if (tot > 0) het = 100.0 * dark / tot;
     writeRow("Nucleus", "", n,
         getResult("Area", row), getResult("Perim.", row), getResult("Circ.", row),
