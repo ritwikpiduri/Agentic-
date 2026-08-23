@@ -18,6 +18,12 @@ var NEAR_FAR_UM = 1.0;          // organelle centre <= this (um) from nucleus = 
 var DMAP = "__nucDistMap";
 var HAVE_DMAP = false;
 
+// --- calibration: microns per pixel for each magnification (from your scope) ---
+// 2000/2600/11000/22000 are your exact values; 3400 & 17500 are estimates
+// (mag x pixel-size ~ 14,400) - replace with exact values if you measure them.
+var CAL_MAG = newArray(2000,   2600,     3400,    11000,    17500,    22000);
+var CAL_PX  = newArray(0.0072, 0.005454, 0.00425, 0.001355, 0.000825, 0.0006479);
+
 initTables();
 
 var go = true;
@@ -29,7 +35,7 @@ while (go) {
         Dialog.create("TEM manual - choose action");
         Dialog.addMessage("Image: " + getTitle());
         Dialog.addChoice("Action:", newArray(
-            "1  Set scale (scale bar)",
+            "1  Calibrate (auto from filename magnification)",
             "2  Trace nucleus (shape + chromatin + multinucleation)",
             "3  Mark organelles (type, size, near/far)",
             "4  Mark micronuclei",
@@ -37,10 +43,10 @@ while (go) {
             "6  Nuclear pores (count + density)",
             "7  Finish this image (summary row)",
             "8  Save all CSVs",
-            "0  Quit"), "1  Set scale (scale bar)");
+            "0  Quit"), "1  Calibrate (auto from filename magnification)");
         Dialog.show();
         c = substring(Dialog.getChoice(), 0, 1);
-        if      (c == "1") actSetScale();
+        if      (c == "1") actCalibrate();
         else if (c == "2") actNucleus();
         else if (c == "3") actOrganelles();
         else if (c == "4") actMicronuclei();
@@ -53,25 +59,42 @@ while (go) {
 }
 
 // =============================================================================
-function actSetScale() {
-    setTool("line");
-    waitForUser("Scale bar",
-        "Draw a straight line EXACTLY along the scale bar of this image, then OK.");
-    if (selectionType() != 5) { showMessage("No line drawn."); return; }
-    getLine(x1, y1, x2, y2, lw);
-    barPx = sqrt((x2-x1)*(x2-x1) + (y2-y1)*(y2-y1));
-    Dialog.create("Scale bar length");
-    Dialog.addMessage("Bar = " + d2s(barPx,1) + " pixels.");
-    Dialog.addNumber("Scale bar REAL length:", 500);
-    Dialog.addChoice("Unit:", newArray("nm", "micron"), "nm");
-    Dialog.show();
-    known = Dialog.getNumber();
-    unit = Dialog.getChoice();
-    knownUm = known;
-    if (unit == "nm") knownUm = known / 1000.0;
-    run("Set Scale...", "distance=" + barPx + " known=" + knownUm + " pixel=1 unit=micron");
-    run("Select None");
-    showMessage("Scale set: " + d2s(knownUm/barPx, 6) + " um/pixel.");
+// Auto-calibrate from the magnification in the filename (no scale bar needed).
+function actCalibrate() {
+    if (autoCalibrate()) {
+        getPixelSize(u, pw, ph);
+        showMessage("Calibrated from filename: " + pw + " um/pixel.");
+    } else {
+        mag = getNumber("Couldn't read magnification from the filename.\n" +
+            "Type the magnification for this image:", 22000);
+        px = pxForMag(mag);
+        if (px > 0) { setVoxelSize(px, px, 1, "micron"); showMessage("Set " + px + " um/pixel for " + mag + "x."); }
+        else showMessage("No pixel size stored for " + mag + "x. Add it to CAL_MAG/CAL_PX at the top.");
+    }
+}
+// read magnification from the image title, apply its pixel size; true if done
+function autoCalibrate() {
+    mag = parseMag(getTitle());
+    if (mag <= 0) return false;
+    px = pxForMag(mag);
+    if (px <= 0) return false;
+    setVoxelSize(px, px, 1, "micron");
+    return true;
+}
+function parseMag(name) {
+    s = name;
+    if (matches(s, ".*[0-9]+[ ]?[kK]?[ ]?[xX].*")) {
+        num = replace(s, ".*?([0-9]+)[ ]?([kK]?)[ ]?[xX].*", "$1");
+        kf  = replace(s, ".*?([0-9]+)[ ]?([kK]?)[ ]?[xX].*", "$2");
+        v = parseFloat(num);
+        if (kf == "k" || kf == "K") v = v * 1000;
+        return v;
+    }
+    return -1;
+}
+function pxForMag(mag) {
+    for (i = 0; i < CAL_MAG.length; i++) if (CAL_MAG[i] == mag) return CAL_PX[i];
+    return -1;
 }
 
 function actNucleus() {
@@ -326,7 +349,8 @@ function setMeas() {
 function checkScale() {
     getPixelSize(u, pw, ph);
     if (pw == 1 && (u == "pixel" || u == "pixels" || u == "")) {
-        showMessage("Set the scale first (action 1) - draw the scale bar so sizes are in um.");
+        if (autoCalibrate()) return true;   // try filename magnification
+        showMessage("Couldn't auto-calibrate. Run action 1 and type the magnification.");
         return false;
     }
     return true;
