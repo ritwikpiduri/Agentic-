@@ -86,8 +86,9 @@ showMessage("Done", "Processed " + done + " image(s).\nSaved: " + outDir + "TEM_
 // one row per measurement, all columns (NaN / "" where not applicable)
 function writeRow(rec, typ, idx, area, perim, circ, ar, rnd, sol, het, eu, dist, nf, thick, pcnt, pdens) {
     r = Table.size(TBL);
+    smp = folderOf();
     Table.set("Image", r, _curImg, TBL);
-    Table.set("Sample", r, folderOf(), TBL);
+    Table.set("Sample", r, smp, TBL);
     Table.set("RecordType", r, rec, TBL);
     Table.set("Type", r, typ, TBL);
     Table.set("Index", r, idx, TBL);
