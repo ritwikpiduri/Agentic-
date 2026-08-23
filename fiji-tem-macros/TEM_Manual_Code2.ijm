@@ -127,7 +127,9 @@ function actNucleus() {
         getResult("AR", row), getResult("Round", row), getResult("Solidity", row),
         het, 100 - het, NaN, "", NaN, NaN, NaN);
     buildDistMap(); run("Select None");
-    showMessage("Nucleus " + n + " recorded." + (n > 1 ? "\n>> Multinucleated." : ""));
+    msg = "Nucleus " + n + " recorded.";
+    if (n > 1) msg = msg + "\n>> Multinucleated.";
+    showMessage(msg);
 }
 
 function actOrganelles() {
@@ -197,7 +199,10 @@ function actPores() {
     perim = nucPerim(_curImg); dens = NaN; if (perim > 0) dens = count / perim;
     writeRow("Pore", "", 1, NaN, NaN, NaN, NaN, NaN, NaN, NaN, NaN, NaN, "", NaN, count, dens);
     run("Select None");
-    showMessage(count + " pores." + (perim > 0 ? "\nDensity = " + d2s(dens,3) + " pores/um." : "\n(Trace nucleus first for density.)"));
+    pmsg = count + " pores.";
+    if (perim > 0) pmsg = pmsg + "\nDensity = " + d2s(dens,3) + " pores/um.";
+    else pmsg = pmsg + "\n(Trace nucleus first for density.)";
+    showMessage(pmsg);
 }
 
 // ---- distance map from the nucleus ROI ----
