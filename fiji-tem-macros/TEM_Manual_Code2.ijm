@@ -34,7 +34,7 @@ inDir  = getDirectory("Choose the FOLDER of images to analyse");
 outDir = getDirectory("Choose an OUTPUT folder for TEM_Results.csv");
 if (!isOpen(TBL)) Table.create(TBL);
 
-var files = listTiffs(inDir);
+files = listTiffs(inDir);
 if (files.length == 0) { showMessage("No .tif/.tiff images found."); exit; }
 
 setBatchMode(false);
