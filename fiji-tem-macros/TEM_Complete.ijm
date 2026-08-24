@@ -81,6 +81,7 @@ for (f = 0; f < files.length; f++) {
             Dialog.addMessage(_curImg);
             Dialog.addChoice("Action:", newArray(
                 "Nucleus  (1 click - shape + chromatin + multinucleation)",
+                "Nucleus edge for distance only  (partial nucleus, high-mag)",
                 "Micronuclei  (trace each)",
                 "Organelles  (type, size, near/far)",
                 "Membrane thickness  (line)",
@@ -90,7 +91,8 @@ for (f = 0; f < files.length; f++) {
                 "QUIT and save"), "Nucleus  (1 click - shape + chromatin + multinucleation)");
             Dialog.show();
             a = Dialog.getChoice();
-            if      (startsWith(a, "Nucleus"))      actNucleus();
+            if      (startsWith(a, "Nucleus edge")) actNucleusEdge();
+            else if (startsWith(a, "Nucleus"))      actNucleus();
             else if (startsWith(a, "Micronuclei"))  actMicronuclei();
             else if (startsWith(a, "Organelles"))   actOrganelles();
             else if (startsWith(a, "Membrane"))     actMembrane();
@@ -190,6 +192,18 @@ function actNucleus() {
     msg = "Nucleus " + n + " recorded.";
     if (n > 1) msg = msg + "\n>> Multinucleated (" + n + " nuclei).";
     showMessage(msg);
+}
+
+// ---- Nucleus edge: trace the partial nucleus for near/far ONLY (no shape row) ----
+function actNucleusEdge() {
+    setMeas(); setTool("freehand");
+    run("Select None");
+    waitForUser("Nucleus edge (distance only)",
+        "Trace the part of the NUCLEUS shown in this image (the nuclear side),\n" +
+        "then OK. This sets up organelle near/far.\nNo nucleus shape is recorded.");
+    if (selectionType() < 0) { showMessage("Nothing traced - skipped."); return; }
+    buildDistMap(); run("Select None");
+    showMessage("Nucleus edge set for this image.\nNow trace organelles to get their near/far.");
 }
 
 function actMicronuclei() {
