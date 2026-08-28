@@ -34,8 +34,20 @@ var LINE_LEN = 0;          // length of the reference line (microns)
 inDir   = getDirectory("Choose the FOLDER of images (high-mag / organelles)");
 _outDir = getDirectory("Choose an OUTPUT folder for TEM_Organelle.csv");
 
-if (isOpen(TBL)) { selectWindow(TBL); run("Close"); }
-Table.create(TBL);
+csvPath = _outDir + "TEM_Organelle.csv";
+if (File.exists(csvPath)) {
+    if (getBoolean("Found an existing TEM_Organelle.csv here.\n \nYES = RESUME (keep it and add to it)\nNO = start a NEW file (old one renamed to _prev)")) {
+        open(csvPath);
+        TBL = "TEM_Organelle.csv";
+    } else {
+        File.rename(csvPath, _outDir + "TEM_Organelle_prev.csv");
+        if (isOpen(TBL)) { selectWindow(TBL); run("Close"); }
+        Table.create(TBL);
+    }
+} else {
+    if (isOpen(TBL)) { selectWindow(TBL); run("Close"); }
+    Table.create(TBL);
+}
 
 Dialog.create("Settings");
 Dialog.addNumber("Organelle near/far cutoff (um):", NEAR_FAR_UM);
@@ -45,9 +57,12 @@ NEAR_FAR_UM = Dialog.getNumber();
 files = listTiffs(inDir);
 if (files.length == 0) { showMessage("No .tif/.tiff images found."); exit; }
 
+startAt = getNumber("Start from image number (1 = beginning).\nThe title bar shows the number you were on.", 1);
+if (startAt < 1) startAt = 1;
+
 setBatchMode(false);
 quit = false; done = 0;
-for (f = 0; f < files.length; f++) {
+for (f = startAt - 1; f < files.length; f++) {
     if (quit) f = files.length;
     else {
         open(files[f]);

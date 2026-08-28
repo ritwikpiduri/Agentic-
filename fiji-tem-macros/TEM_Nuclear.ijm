@@ -32,15 +32,30 @@ _outDir = getDirectory("Choose an OUTPUT folder for TEM_Nuclear.csv");
 _qcDir  = _outDir + "QC_nucleus/";
 File.makeDirectory(_qcDir);
 
-if (isOpen(TBL)) { selectWindow(TBL); run("Close"); }
-Table.create(TBL);
+csvPath = _outDir + "TEM_Nuclear.csv";
+if (File.exists(csvPath)) {
+    if (getBoolean("Found an existing TEM_Nuclear.csv here.\n \nYES = RESUME (keep it and add to it)\nNO = start a NEW file (old one renamed to _prev)")) {
+        open(csvPath);
+        TBL = "TEM_Nuclear.csv";           // continue the loaded table
+    } else {
+        File.rename(csvPath, _outDir + "TEM_Nuclear_prev.csv");
+        if (isOpen(TBL)) { selectWindow(TBL); run("Close"); }
+        Table.create(TBL);
+    }
+} else {
+    if (isOpen(TBL)) { selectWindow(TBL); run("Close"); }
+    Table.create(TBL);
+}
 
 files = listTiffs(inDir);
 if (files.length == 0) { showMessage("No .tif/.tiff images found."); exit; }
 
+startAt = getNumber("Start from image number (1 = beginning).\nThe title bar shows the number you were on, e.g. 78/180.", 1);
+if (startAt < 1) startAt = 1;
+
 setBatchMode(false);
 quit = false; done = 0;
-for (f = 0; f < files.length; f++) {
+for (f = startAt - 1; f < files.length; f++) {
     if (quit) f = files.length;
     else {
         open(files[f]);
