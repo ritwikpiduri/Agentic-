@@ -21,10 +21,13 @@ open(path);
 T = File.getName(path);
 N = Table.size(T);
 
-// which column holds the pixel area? try common names.
+// Code 1 (TEM_OneClick) always writes the pixel area in the "Area_px" column.
 areaCol = "Area_px";
-if (!hasColumn(T, areaCol)) areaCol = "Area";       // fallback
-if (!hasColumn(T, areaCol)) { showMessage("Could not find an 'Area_px' or 'Area' column."); exit; }
+heads = Table.headings;
+if (indexOf(heads, "Area_px") < 0) {
+    if (indexOf(heads, "Area") >= 0) areaCol = "Area";
+    else { showMessage("No 'Area_px' or 'Area' column found in this CSV."); exit; }
+}
 
 for (i = 0; i < N; i++) {
     img = Table.getString("Image", i, T);
@@ -47,10 +50,6 @@ Table.save(outPath);
 showMessage("Done", "Added Area_um2 (and Magnification, PixelSize_um).\nSaved:\n" + outPath);
 
 // ---- helpers ----
-function hasColumn(tbl, col) {
-    headings = Table.headings(tbl);
-    return indexOf(headings, col) >= 0;
-}
 function readMag(name) {
     s = name;
     if (matches(s, ".*[0-9]+[ ]?[kK]?[ ]?[xX].*")) {
