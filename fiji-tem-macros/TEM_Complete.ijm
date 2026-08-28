@@ -80,7 +80,7 @@ for (f = 0; f < files.length; f++) {
             Dialog.create("Image " + (f+1) + " / " + files.length);
             Dialog.addMessage(_curImg);
             Dialog.addChoice("Action:", newArray(
-                "Nucleus  (1 click - shape + chromatin + multinucleation)",
+                "Nucleus  (trace - shape + chromatin + area + multinucleation)",
                 "Nucleus edge for distance only  (partial nucleus, high-mag)",
                 "Micronuclei  (trace each)",
                 "Organelles  (type, size, near/far)",
@@ -88,7 +88,7 @@ for (f = 0; f < files.length; f++) {
                 "Nuclear pores  (click each)",
                 "NEXT image",
                 "SKIP this image",
-                "QUIT and save"), "Nucleus  (1 click - shape + chromatin + multinucleation)");
+                "QUIT and save"), "Nucleus  (trace - shape + chromatin + area + multinucleation)");
             Dialog.show();
             a = Dialog.getChoice();
             if      (startsWith(a, "Nucleus edge")) actNucleusEdge();
@@ -137,34 +137,14 @@ function writeRow(rec, typ, idx, area, perim, circ, ar, rnd, sol, het, eu, dist,
     selectWindow(TBL); Table.save(_outDir + "TEM_Results.csv");   // save after every row
 }
 
-// ---- Nucleus: one click -> grow -> measure ----
+// ---- Nucleus: freehand trace -> measure (reliable; envelope is too faint to auto-grow) ----
 function actNucleus() {
-    setMeas(); setTool("point");
+    setMeas(); setTool("freehand");
     run("Select None");
-    waitForUser("Nucleus",
-        "CLICK once inside the nucleus, then OK.\n(No whole nucleus here? Click OK without clicking.)");
-    if (selectionType() != 10) { showMessage("Nothing clicked - skipped."); return; }
-    getSelectionCoordinates(xs, ys); xc = xs[0]; yc = ys[0];
-    run("Select None");
-
-    run("Duplicate...", "title=nwork");
-    run("Gaussian Blur...", "sigma=" + BLUR);
-    doWand(xc, yc, TOL, "8-connected");
-    if (selectionType() < 0) {
-        if (isOpen("nwork")) { selectWindow("nwork"); close(); }
-        showMessage("Could not grow there. Try higher Sensitivity or click nearer the centre.");
-        return;
-    }
-    getStatistics(gArea);
-    w = getWidth(); h = getHeight(); getPixelSize(u2, pw2, ph2);
-    frameA = w * h * pw2 * ph2;
-    if (gArea > 0.9 * frameA) {
-        if (isOpen("nwork")) { selectWindow("nwork"); close(); }
-        showMessage("That grew to almost the whole image. Lower Sensitivity or click deeper inside the nucleus.");
-        return;
-    }
+    waitForUser("Trace the NUCLEUS",
+        "Trace around the nuclear envelope (freehand), then OK.\n(No whole nucleus here? Click OK without tracing.)");
+    if (selectionType() < 0) { showMessage("Nothing traced - skipped."); return; }
     roiManager("reset"); roiManager("add");
-    if (isOpen("nwork")) { selectWindow("nwork"); close(); }
 
     selectWindow(_curImg); roiManager("select", 0);
     run("Measure"); m = nResults - 1;
