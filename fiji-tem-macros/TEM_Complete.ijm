@@ -39,6 +39,8 @@ var NEAR_FAR_UM = 1.0;     // organelle <= this from nucleus edge = "near"
 var TBL   = "TEM_Results";
 var DMAP  = "__nucDist";
 var HAVE_DMAP = false;
+var REF_MODE = "none";     // "region" (full nucleus trace) or "line" (envelope line)
+var LX1 = 0; var LY1 = 0; var LX2 = 0; var LY2 = 0;   // envelope line (microns)
 var _curImg = "";
 var _curDir = "";
 var _outDir = "";
@@ -71,7 +73,7 @@ for (f = 0; f < files.length; f++) {
         if (bitDepth() == 24 || bitDepth() == 16) run("8-bit");
         _curImg = getTitle();
         _curDir = File.getParent(files[f]);
-        HAVE_DMAP = false;
+        HAVE_DMAP = false; REF_MODE = "none";
         autoCalibrate();
         run("Enhance Contrast", "saturated=0.35");   // view only
 
@@ -81,7 +83,7 @@ for (f = 0; f < files.length; f++) {
             Dialog.addMessage(_curImg);
             Dialog.addChoice("Action:", newArray(
                 "Nucleus  (trace - shape + chromatin + area + multinucleation)",
-                "Nucleus edge for distance only  (partial nucleus, high-mag)",
+                "Nucleus reference for distance  (draw line on envelope, high-mag)",
                 "Micronuclei  (trace each)",
                 "Organelles  (type, size, near/far)",
                 "Membrane thickness  (line)",
@@ -91,7 +93,7 @@ for (f = 0; f < files.length; f++) {
                 "QUIT and save"), "Nucleus  (trace - shape + chromatin + area + multinucleation)");
             Dialog.show();
             a = Dialog.getChoice();
-            if      (startsWith(a, "Nucleus edge")) actNucleusEdge();
+            if      (startsWith(a, "Nucleus reference")) actNucleusRef();
             else if (startsWith(a, "Nucleus"))      actNucleus();
             else if (startsWith(a, "Micronuclei"))  actMicronuclei();
             else if (startsWith(a, "Organelles"))   actOrganelles();
@@ -174,16 +176,20 @@ function actNucleus() {
     showMessage(msg);
 }
 
-// ---- Nucleus edge: trace the partial nucleus for near/far ONLY (no shape row) ----
-function actNucleusEdge() {
-    setMeas(); setTool("freehand");
+// ---- Nucleus reference: draw a line along the envelope for organelle distances ----
+function actNucleusRef() {
+    setTool("line");
     run("Select None");
-    waitForUser("Nucleus edge (distance only)",
-        "Trace the part of the NUCLEUS shown in this image (the nuclear side),\n" +
-        "then OK. This sets up organelle near/far.\nNo nucleus shape is recorded.");
-    if (selectionType() < 0) { showMessage("Nothing traced - skipped."); return; }
-    buildDistMap(); run("Select None");
-    showMessage("Nucleus edge set for this image.\nNow trace organelles to get their near/far.");
+    waitForUser("Nucleus reference (distance)",
+        "Draw ONE line ALONG the nuclear envelope shown in this image\n" +
+        "(the edge of the nucleus), then OK.\nThis is the reference for organelle near/far.");
+    if (selectionType() != 5) { showMessage("Draw a straight LINE along the envelope."); return; }
+    getLine(x1, y1, x2, y2, lw);
+    getPixelSize(u, pw, ph);
+    LX1 = x1 * pw; LY1 = y1 * ph; LX2 = x2 * pw; LY2 = y2 * ph;
+    REF_MODE = "line"; HAVE_DMAP = true;
+    run("Select None");
+    showMessage("Nucleus reference set.\nNow mark organelles (oval) to get their near/far.");
 }
 
 function actMicronuclei() {
@@ -209,18 +215,18 @@ function actOrganelles() {
     Dialog.addChoice("Marking which organelle?", types, types[0]);
     Dialog.show();
     otype = Dialog.getChoice();
-    if (!HAVE_DMAP) showMessage("Tip: do the Nucleus first so distances (near/far) are recorded.");
-    setMeas(); setTool("freehand");
+    if (!HAVE_DMAP) showMessage("Tip: do the Nucleus (or Nucleus reference line) first so near/far is recorded.");
+    setMeas(); setTool("oval");
     i = 0; more = true;
     while (more) {
         i = i + 1;
-        waitForUser(otype + " #" + i, "Trace this " + otype + " (freehand), then OK.");
+        waitForUser(otype + " #" + i, "Drag a quick OVAL over this " + otype + ", then OK.");
         if (selectionType() < 0) { i = i - 1; }
         else {
             run("Measure"); m = nResults - 1;
             cx = getResult("X", m); cy = getResult("Y", m);
             dist = NaN; nf = "";
-            if (HAVE_DMAP) { dist = distEdge(cx, cy); if (dist <= NEAR_FAR_UM) nf = "near"; else nf = "far"; }
+            if (HAVE_DMAP) { dist = distToRef(cx, cy); if (dist <= NEAR_FAR_UM) nf = "near"; else nf = "far"; }
             writeRow("Organelle", otype, i, getResult("Area", m), NaN, getResult("Circ.", m),
                 NaN, NaN, NaN, NaN, NaN, dist, nf, NaN, NaN, NaN);
         }
@@ -267,16 +273,31 @@ function buildDistMap() {
     selectWindow(orig); roiManager("reset"); roiManager("add");
     selectWindow(DMAP); roiManager("select", 0); setColor(255); fill(); run("Select None");
     setOption("BlackBackground", true); run("Invert"); run("Distance Map");
-    HAVE_DMAP = true; selectWindow(orig); roiManager("reset");
+    HAVE_DMAP = true; REF_MODE = "region"; selectWindow(orig); roiManager("reset");
+}
+// distance from an organelle centroid (microns) to the nucleus reference
+function distToRef(cx, cy) {
+    if (REF_MODE == "line") return pointSegDist(cx, cy, LX1, LY1, LX2, LY2);
+    if (REF_MODE == "region") return distEdge(cx, cy);
+    return NaN;
 }
 function distEdge(cx, cy) {
-    if (!HAVE_DMAP || !isOpen(DMAP)) return NaN;
+    if (!isOpen(DMAP)) return NaN;
     cur = getTitle(); selectWindow(DMAP); getPixelSize(u, pw, ph);
     px = round(cx / pw); py = round(cy / ph);
     if (px < 0) px = 0; if (py < 0) py = 0;
     if (px >= getWidth()) px = getWidth() - 1;
     if (py >= getHeight()) py = getHeight() - 1;
     d = getPixel(px, py) * pw; selectWindow(cur); return d;
+}
+// shortest distance from point (px,py) to line segment (x1,y1)-(x2,y2), all in microns
+function pointSegDist(px, py, x1, y1, x2, y2) {
+    dx = x2 - x1; dy = y2 - y1;
+    if (dx == 0 && dy == 0) return sqrt((px-x1)*(px-x1) + (py-y1)*(py-y1));
+    t = ((px-x1)*dx + (py-y1)*dy) / (dx*dx + dy*dy);
+    if (t < 0) t = 0; if (t > 1) t = 1;
+    qx = x1 + t*dx; qy = y1 + t*dy;
+    return sqrt((px-qx)*(px-qx) + (py-qy)*(py-qy));
 }
 
 // ---- calibration ----
