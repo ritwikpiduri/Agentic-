@@ -3,12 +3,12 @@
 //  Run this on your HIGH-MAG images (do this after the nuclear session).
 //
 //  Per image, a menu lets you:
-//    Nucleus reference -> draw ONE line along the nuclear envelope in the frame.
-//                         This is the reference for organelle near/far.
+//    Nucleus reference -> TRACE the nuclear envelope shown in the frame
+//                         (freehand, following the membrane / around the nucleus).
+//                         This is the reference for organelle near/far + pores.
 //    Organelles        -> pick a type, then drag a quick OVAL over each one ->
 //                         area, circularity, distance to nucleus, near/far.
-//    Nuclear pores     -> click each pore -> count (+ pores per um of the
-//                         reference line, if you drew one).
+//    Nuclear pores     -> click each pore -> count + pores per um of envelope.
 //    NEXT / SKIP / QUIT
 //
 //  OUTPUT: one file TEM_Organelle.csv. Saved after EVERY measurement, so
@@ -23,13 +23,13 @@ var CAM_CONST = 14.4;
 
 var NEAR_FAR_UM = 1.0;     // organelle <= this from the nucleus edge = "near"
 var TBL   = "TEM_Organelle";
+var DMAP  = "__nucDist";
 var _curImg = "";
 var _curDir = "";
 var _outDir = "";
 
 var HAVE_REF = false;
-var LX1 = 0; var LY1 = 0; var LX2 = 0; var LY2 = 0;   // envelope line (microns)
-var LINE_LEN = 0;          // length of the reference line (microns)
+var REF_PERIM = 0;         // traced nucleus perimeter (um), for pore density
 
 inDir   = getDirectory("Choose the FOLDER of images (high-mag / organelles)");
 _outDir = getDirectory("Choose an OUTPUT folder for TEM_Organelle.csv");
@@ -69,7 +69,7 @@ for (f = startAt - 1; f < files.length; f++) {
         if (bitDepth() == 24 || bitDepth() == 16) run("8-bit");
         _curImg = getTitle();
         _curDir = File.getParent(files[f]);
-        HAVE_REF = false; LINE_LEN = 0;
+        HAVE_REF = false; REF_PERIM = 0;
         autoCalibrate();
         run("Enhance Contrast", "saturated=0.35");   // view only
 
@@ -78,12 +78,12 @@ for (f = startAt - 1; f < files.length; f++) {
             Dialog.create("Image " + (f+1) + " / " + files.length);
             Dialog.addMessage(_curImg);
             Dialog.addChoice("Action:", newArray(
-                "Nucleus reference  (draw line on envelope - do first)",
+                "Nucleus reference  (trace the nucleus - do first)",
                 "Organelles  (oval each - size + near/far)",
                 "Nuclear pores  (click each)",
                 "NEXT image",
                 "SKIP this image",
-                "QUIT and save"), "Nucleus reference  (draw line on envelope - do first)");
+                "QUIT and save"), "Nucleus reference  (trace the nucleus - do first)");
             Dialog.show();
             a = Dialog.getChoice();
             if      (startsWith(a, "Nucleus reference")) actNucleusRef();
@@ -93,6 +93,7 @@ for (f = startAt - 1; f < files.length; f++) {
             else if (startsWith(a, "SKIP"))              imgDone = true;
             else if (startsWith(a, "QUIT"))              { imgDone = true; quit = true; }
         }
+        if (isOpen(DMAP)) { selectWindow(DMAP); close(); }
         if (nImages > 0) { selectWindow(_curImg); close(); }
         done = done + 1;
     }
@@ -127,21 +128,20 @@ function writeRow(rec, typ, idx, area, perim, circ, ar, rnd, sol, het, eu, dist,
     selectWindow(TBL); Table.save(_outDir + "TEM_Organelle.csv");
 }
 
-// ---- nucleus reference line ----
+// ---- nucleus reference: trace the nucleus -> distance map + perimeter ----
 function actNucleusRef() {
-    setTool("line");
+    setMeas(); setTool("freehand");
     run("Select None");
-    waitForUser("Nucleus reference (distance)",
-        "Draw ONE line ALONG the nuclear envelope shown in this image,\n" +
-        "then OK. This is the reference for organelle near/far\n(and for pore density).");
-    if (selectionType() != 5) { showMessage("Draw a straight LINE along the envelope."); return; }
-    getLine(x1, y1, x2, y2, lw);
-    getPixelSize(u, pw, ph);
-    LX1 = x1 * pw; LY1 = y1 * ph; LX2 = x2 * pw; LY2 = y2 * ph;
-    LINE_LEN = sqrt((LX2-LX1)*(LX2-LX1) + (LY2-LY1)*(LY2-LY1));
+    waitForUser("Nucleus reference (trace)",
+        "Trace AROUND the nucleus (freehand), following the envelope,\n" +
+        "then OK. This is the reference for organelle near/far and pore density.");
+    if (selectionType() < 0) { showMessage("Nothing traced - skipped."); return; }
+    run("Measure"); m = nResults - 1;
+    REF_PERIM = getResult("Perim.", m);
+    buildDistMap();
+    run("Select None");
     HAVE_REF = true;
-    run("Select None");
-    showMessage("Nucleus reference set (length " + d2s(LINE_LEN,3) + " um).\nNow mark organelles.");
+    showMessage("Nucleus reference set (perimeter " + d2s(REF_PERIM,2) + " um).\nNow mark organelles / pores.");
 }
 
 // ---- organelles: quick oval each ----
@@ -151,7 +151,7 @@ function actOrganelles() {
     Dialog.addChoice("Marking which organelle?", types, types[0]);
     Dialog.show();
     otype = Dialog.getChoice();
-    if (!HAVE_REF) showMessage("Tip: draw the Nucleus reference line first so near/far is recorded.");
+    if (!HAVE_REF) showMessage("Tip: trace the Nucleus reference first so near/far is recorded.");
     setMeas(); setTool("oval");
     i = 0; more = true;
     while (more) {
@@ -162,7 +162,7 @@ function actOrganelles() {
             run("Measure"); m = nResults - 1;
             cx = getResult("X", m); cy = getResult("Y", m);
             dist = NaN; nf = "";
-            if (HAVE_REF) { dist = pointSegDist(cx, cy, LX1, LY1, LX2, LY2); if (dist <= NEAR_FAR_UM) nf = "near"; else nf = "far"; }
+            if (HAVE_REF) { dist = distEdge(cx, cy); if (dist <= NEAR_FAR_UM) nf = "near"; else nf = "far"; }
             writeRow("Organelle", otype, i, getResult("Area", m), NaN, getResult("Circ.", m),
                 NaN, NaN, NaN, NaN, NaN, dist, nf, NaN, NaN, NaN);
         }
@@ -177,23 +177,34 @@ function actPores() {
     waitForUser("Nuclear pores", "Multi-point tool: CLICK each nuclear pore, then OK.");
     if (selectionType() != 10) { showMessage("Use the multi-point tool and click the pores."); return; }
     getSelectionCoordinates(xs, ys); count = xs.length;
-    dens = NaN; if (HAVE_REF && LINE_LEN > 0) dens = count / LINE_LEN;
+    dens = NaN; if (HAVE_REF && REF_PERIM > 0) dens = count / REF_PERIM;
     writeRow("Pore", "", 1, NaN, NaN, NaN, NaN, NaN, NaN, NaN, NaN, NaN, "", NaN, count, dens);
     run("Select None");
     pmsg = count + " pores.";
-    if (HAVE_REF && LINE_LEN > 0) pmsg = pmsg + "\nDensity = " + d2s(dens,3) + " pores/um (along the reference line).";
-    else pmsg = pmsg + "\n(Draw the Nucleus reference line first for density.)";
+    if (HAVE_REF && REF_PERIM > 0) pmsg = pmsg + "\nDensity = " + d2s(dens,3) + " pores/um of envelope.";
+    else pmsg = pmsg + "\n(Trace the Nucleus reference first for density.)";
     showMessage(pmsg);
 }
 
-// ---- distance: point to line segment (microns) ----
-function pointSegDist(px, py, x1, y1, x2, y2) {
-    dx = x2 - x1; dy = y2 - y1;
-    if (dx == 0 && dy == 0) return sqrt((px-x1)*(px-x1) + (py-y1)*(py-y1));
-    t = ((px-x1)*dx + (py-y1)*dy) / (dx*dx + dy*dy);
-    if (t < 0) t = 0; if (t > 1) t = 1;
-    qx = x1 + t*dx; qy = y1 + t*dy;
-    return sqrt((px-qx)*(px-qx) + (py-qy)*(py-qy));
+// ---- distance map from the traced nucleus (distance to the nuclear edge) ----
+function buildDistMap() {
+    if (selectionType() < 0) return;
+    orig = getTitle(); w = getWidth(); h = getHeight();
+    if (isOpen(DMAP)) { selectWindow(DMAP); close(); }
+    newImage(DMAP, "8-bit black", w, h, 1);
+    selectWindow(orig); roiManager("reset"); roiManager("add");
+    selectWindow(DMAP); roiManager("select", 0); setColor(255); fill(); run("Select None");
+    setOption("BlackBackground", true); run("Invert"); run("Distance Map");
+    selectWindow(orig); roiManager("reset");
+}
+function distEdge(cx, cy) {
+    if (!isOpen(DMAP)) return NaN;
+    cur = getTitle(); selectWindow(DMAP); getPixelSize(u, pw, ph);
+    px = round(cx / pw); py = round(cy / ph);
+    if (px < 0) px = 0; if (py < 0) py = 0;
+    if (px >= getWidth()) px = getWidth() - 1;
+    if (py >= getHeight()) py = getHeight() - 1;
+    d = getPixel(px, py) * pw; selectWindow(cur); return d;
 }
 
 // ---- calibration + helpers ----
