@@ -146,7 +146,7 @@ function actNucleusRef() {
 
 // ---- organelles: quick oval each ----
 function actOrganelles() {
-    types = newArray("ER", "Mitochondria", "Golgi", "Vacuole", "LipidBody");
+    types = newArray("ER", "Mitochondria", "Golgi", "Vacuole", "LipidBody", "Lysosome");
     Dialog.create("Organelle type");
     Dialog.addChoice("Marking which organelle?", types, types[0]);
     Dialog.show();
