@@ -80,6 +80,7 @@ for (f = startAt - 1; f < files.length; f++) {
             Dialog.addChoice("Action:", newArray(
                 "Nucleus reference  (trace the nucleus - do first)",
                 "Organelles  (oval each - size + near/far)",
+                "Count organelles per field  (tap all - more/less)",
                 "Nuclear pores  (click each)",
                 "NEXT image",
                 "SKIP this image",
@@ -87,6 +88,7 @@ for (f = startAt - 1; f < files.length; f++) {
             Dialog.show();
             a = Dialog.getChoice();
             if      (startsWith(a, "Nucleus reference")) actNucleusRef();
+            else if (startsWith(a, "Count organelles"))  actCount();
             else if (startsWith(a, "Organelles"))        actOrganelles();
             else if (startsWith(a, "Nuclear pores"))     actPores();
             else if (startsWith(a, "NEXT"))              imgDone = true;
@@ -142,6 +144,38 @@ function actNucleusRef() {
     run("Select None");
     HAVE_REF = true;
     showMessage("Nucleus reference set (perimeter " + d2s(REF_PERIM,2) + " um).\nNow mark organelles / pores.");
+}
+
+// ---- count organelles per field (abundance / density) ----
+// Records, per type: Index = count, Area_um2 = counted field area (um^2).
+// Density (count per um^2) = Index / Area_um2, computed later in Excel.
+function actCount() {
+    setMeas(); setTool("freehand");
+    run("Select None");
+    waitForUser("Counting area",
+        "Trace the region you are counting within (the cell/cytoplasm area\n" +
+        "in this field), then OK.  (No selection = the whole image is used.)");
+    getPixelSize(u, pw, ph);
+    if (selectionType() >= 0) { run("Measure"); m = nResults - 1; fieldA = getResult("Area", m); }
+    else { fieldA = getWidth() * getHeight() * pw * ph; }
+    run("Select None");
+
+    types = newArray("ER", "Mitochondria", "Golgi", "Vacuole", "LipidBody", "Lysosome");
+    more = true;
+    while (more) {
+        Dialog.create("Count which organelle?");
+        Dialog.addChoice("Type:", types, types[1]);
+        Dialog.show();
+        ct = Dialog.getChoice();
+        setTool("multipoint");
+        waitForUser("Count " + ct, "CLICK each " + ct + " in the counting area, then OK.");
+        cnt = 0;
+        if (selectionType() == 10) { getSelectionCoordinates(xs, ys); cnt = xs.length; }
+        writeRow("OrganelleCount", ct, cnt, fieldA, NaN, NaN, NaN, NaN, NaN, NaN, NaN, NaN, "", NaN, NaN, NaN);
+        run("Select None");
+        more = getBoolean("Count another organelle type in this field?");
+    }
+    showMessage("Counts recorded (field area " + d2s(fieldA,2) + " um2).");
 }
 
 // ---- organelles: quick oval each ----
