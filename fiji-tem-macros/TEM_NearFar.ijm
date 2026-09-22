@@ -1,27 +1,31 @@
 // ============================================================================
-//  TEM_NearFar.ijm  --  organelle NEAR/FAR + NUCLEAR PORES, in one pass.
+//  TEM_NearFar.ijm  --  organelle COUNT + DISTANCE-to-nucleus + NUCLEAR PORES,
+//                       in ONE pass, built for HIGH-MAG (partial nucleus) images.
 //
-//  Redo of the two readouts that need the nucleus as a reference. Your organelle
-//  AREA, count and circularity from the first pass are fine and are NOT redone.
+//  Your organelle AREA / circularity from the first pass are fine and NOT redone.
+//  This fixes the two readouts that need the nucleus as a reference.
 //
-//  Per image you get a menu:
-//    Near/far   -> TRACE the nucleus (freehand, follow the envelope), then just
-//                  CLICK each organelle (multipoint). Each click's distance to
-//                  the nuclear edge -> near / far.  (No oval needed = fast.)
-//    Pores      -> TRACE ALONG a stretch of nuclear envelope (freehand LINE),
-//                  then CLICK each pore on it. -> count + pores per um.
-//    NEXT       -> go to the next image.
-//    QUIT       -> save and stop.
-//  You can do near/far AND pores on the same image before NEXT.
-//  If no nucleus edge is in the frame, just hit NEXT (both need a nucleus).
+//  Because the nucleus is usually only PARTLY in the frame at high mag, the
+//  reference is the VISIBLE MEMBRANE LINE (not a filled shape). Distance is then
+//  the true shortest distance from each organelle to that membrane -- correct
+//  even when most of the nucleus is off-frame.
+//
+//  PER IMAGE (one trace does everything):
+//    1) With the FREEHAND-LINE tool, trace ALONG the visible nuclear envelope.
+//    2) Organelles: pick a type, CLICK each one -> count + distance -> near/far.
+//       (Repeat for each type.)
+//    3) Pores: CLICK each pore along that envelope -> count + pores per um.
+//  If no nucleus edge is visible in a frame, SKIP it (distance is impossible
+//  without a membrane to measure to).
+//
+//  NOTE (partial nucleus): distance is to the membrane you TRACED. An organelle
+//  could sit near a piece of membrane that is off-frame; you can only measure to
+//  what is visible. That is a limitation of partial images, not a bug.
 //
 //  Output: TEM_NearFar.csv, saved after every entry (Esc / QUIT safe).
 //    RecordType "OrganelleNF": Type, Dist_to_nucleus_um, NearFar
 //    RecordType "Pore":        Perimeter_um (envelope length), PoreCount, Pores_per_um
-//  TEM_Analyze.ijm reads both. Also saves each traced nucleus in ROI_nucleus/.
-//
-//  Run all sample folders (or one at a time) -- the Sample column is your folder
-//  name, so samples stay separated in the output.
+//  TEM_Analyze.ijm reads both. Each traced envelope is saved in ROI_nucleus/.
 // ============================================================================
 
 var CAL_MAG = newArray(2000,   2600,     3400,    11000,    17500,    22000);
@@ -29,7 +33,7 @@ var CAL_PX  = newArray(0.0072, 0.005454, 0.00425, 0.001355, 0.000825, 0.0006479)
 var CAM_CONST = 14.4;
 
 var TYPES = newArray("ER", "Mitochondria", "Golgi", "Vacuole", "LipidBody", "Lysosome");
-var NEAR_FAR_UM = 1.0;     // organelle <= this from the nucleus edge = "near"
+var NEAR_FAR_UM = 1.0;     // organelle <= this from the membrane = "near"
 var TBL   = "TEM_NearFar";
 var DMAP  = "__nucDistNF";
 var REF_PW = 0;
@@ -55,7 +59,7 @@ if (File.exists(csvPath)) {
 }
 
 Dialog.create("Settings");
-Dialog.addNumber("Near/far cutoff (um from nuclear edge):", NEAR_FAR_UM);
+Dialog.addNumber("Near/far cutoff (um from the membrane):", NEAR_FAR_UM);
 Dialog.show();
 NEAR_FAR_UM = Dialog.getNumber();
 
@@ -78,22 +82,17 @@ for (f = startAt - 1; f < files.length; f++) {
         autoCalibrate();
         run("Enhance Contrast", "saturated=0.35");
 
-        imgDone = false;
-        while (!imgDone) {
-            Dialog.create("Image " + (f+1) + " / " + files.length);
-            Dialog.addMessage(_curImg);
-            Dialog.addChoice("Action:", newArray(
-                "Near/far  (trace nucleus, click organelles)",
-                "Nuclear pores  (trace envelope, click pores)",
-                "NEXT image  /  SKIP",
-                "QUIT and save"), "Near/far  (trace nucleus, click organelles)");
-            Dialog.show();
-            a = Dialog.getChoice();
-            if      (startsWith(a, "Near/far"))      measureNearFar();
-            else if (startsWith(a, "Nuclear pores")) measurePores();
-            else if (startsWith(a, "NEXT"))          imgDone = true;
-            else if (startsWith(a, "QUIT"))          { imgDone = true; quit = true; }
-        }
+        Dialog.create("Image " + (f+1) + " / " + files.length);
+        Dialog.addMessage(_curImg);
+        Dialog.addChoice("Action:", newArray(
+            "Measure  (trace membrane, then organelles + pores)",
+            "SKIP  (no nucleus edge in this frame)",
+            "QUIT and save"), "Measure  (trace membrane, then organelles + pores)");
+        Dialog.show();
+        a = Dialog.getChoice();
+        if      (startsWith(a, "Measure")) measure();
+        else if (startsWith(a, "QUIT"))    quit = true;
+
         if (isOpen(DMAP)) { selectWindow(DMAP); close(); }
         if (nImages > 0) { selectWindow(_curImg); close(); }
         done = done + 1;
@@ -104,65 +103,60 @@ Table.save(_outDir + "TEM_NearFar.csv");
 showMessage("Done", "Processed " + done + " image(s).\nSaved: " + _outDir + "TEM_NearFar.csv");
 
 // ============================================================================
-// ---- organelle near/far: trace nucleus once, then click each organelle ----
-function measureNearFar() {
-    setMeas(); setTool("freehand");
+// one trace of the visible membrane -> organelle count+distance, then pores
+function measure() {
+    setMeas(); setTool("freeline");
     run("Select None");
-    waitForUser("Trace the nucleus",
-        "Trace AROUND the nucleus edge in this frame (freehand, follow the\n" +
-        "envelope), then OK.  Partial nucleus is fine.");
-    if (selectionType() < 0) { showMessage("Nothing traced - near/far skipped."); return; }
-    buildDistMap();
+    waitForUser("Trace the nuclear membrane",
+        "With the FREEHAND-LINE tool, trace ALONG the visible nuclear\n" +
+        "envelope (the membrane) in this frame, then OK.\n" +
+        "Partial nucleus is fine - trace whatever membrane you can see.\n" +
+        "This one trace is the reference for BOTH distance AND pores.");
+    st = selectionType();
+    if (!(st == 5 || st == 6 || st == 7)) { showMessage("No line traced - image skipped."); return; }
+    envLen = getValue("Length");
+    buildDistMap();        // distance-to-membrane-line map (sets REF_PW)
     saveNucRoi();
     run("Select None");
 
-    more = true;
-    while (more) {
-        Dialog.create("Which organelle?");
-        Dialog.addChoice("Type:", TYPES, TYPES[1]);
-        Dialog.show();
-        ty = Dialog.getChoice();
-        setTool("multipoint");
-        waitForUser("Click each " + ty, "CLICK once on each " + ty + " in this field, then OK.\n(No clicks = none of this type.)");
-        cNear = 0; cFar = 0;
-        if (selectionType() == 10) {
-            getSelectionCoordinates(xs, ys);
-            for (k = 0; k < xs.length; k++) {
-                d = distEdgePx(xs[k], ys[k]);
-                nf = "far"; if (!isNaN(d) && d <= NEAR_FAR_UM) nf = "near";
-                if (nf == "near") cNear = cNear + 1; else cFar = cFar + 1;
-                writeNF(ty, k + 1, d, nf);
+    // --- organelles: count + distance to membrane ---
+    if (getBoolean("Mark organelles (count + distance to nucleus) in this image?")) {
+        more = true;
+        while (more) {
+            Dialog.create("Which organelle?");
+            Dialog.addChoice("Type:", TYPES, TYPES[1]);
+            Dialog.show();
+            ty = Dialog.getChoice();
+            setTool("multipoint");
+            waitForUser("Click each " + ty, "CLICK once on each " + ty + " in this field, then OK.\n(No clicks = none of this type.)");
+            cNear = 0; cFar = 0; cnt = 0;
+            if (selectionType() == 10) {
+                getSelectionCoordinates(xs, ys); cnt = xs.length;
+                for (k = 0; k < xs.length; k++) {
+                    d = distEdgePx(xs[k], ys[k]);
+                    nf = "far"; if (!isNaN(d) && d <= NEAR_FAR_UM) nf = "near";
+                    if (nf == "near") cNear = cNear + 1; else cFar = cFar + 1;
+                    writeNF(ty, k + 1, d, nf);
+                }
             }
+            run("Select None");
+            showMessage(ty + ": " + cnt + " total  (" + cNear + " near, " + cFar + " far).");
+            more = getBoolean("Mark another organelle type in this image?");
         }
-        run("Select None");
-        showMessage(ty + ": " + cNear + " near, " + cFar + " far recorded.");
-        more = getBoolean("Mark another organelle type in this image?");
     }
-}
 
-// ---- nuclear pores: trace the envelope stretch, then click the pores on it ----
-function measurePores() {
-    setMeas(); setTool("freeline");
-    run("Select None");
-    waitForUser("Envelope for pores",
-        "With the FREEHAND-LINE tool, trace ALONG the stretch of nuclear\n" +
-        "envelope where you will count pores (follow the membrane), then OK.\n" +
-        "(Partial nucleus is fine - just trace the visible stretch.)");
-    envLen = NaN; st = selectionType();
-    if (st == 5 || st == 6 || st == 7) envLen = getValue("Length");
-    run("Select None");
-
-    setTool("multipoint");
-    waitForUser("Nuclear pores", "CLICK each nuclear pore ALONG that stretch, then OK.");
-    if (selectionType() != 10) { showMessage("Use the multi-point tool and click the pores."); return; }
-    getSelectionCoordinates(xs, ys); count = xs.length;
-    dens = NaN; if (!isNaN(envLen) && envLen > 0) dens = count / envLen;
-    writePore(envLen, count, dens);
-    run("Select None");
-    pmsg = count + " pores.";
-    if (!isNaN(dens)) pmsg = pmsg + "\nDensity = " + d2s(dens,3) + " pores/um of envelope (over " + d2s(envLen,2) + " um).";
-    else pmsg = pmsg + "\nCount saved. (Trace the envelope line first to also get density.)";
-    showMessage(pmsg);
+    // --- nuclear pores along the same traced envelope ---
+    if (getBoolean("Count nuclear pores along this envelope?  (length " + d2s(envLen,2) + " um)")) {
+        setTool("multipoint");
+        waitForUser("Nuclear pores", "CLICK each nuclear pore along the traced envelope, then OK.");
+        count = 0;
+        if (selectionType() == 10) { getSelectionCoordinates(pxs, pys); count = pxs.length; }
+        dens = NaN; if (!isNaN(envLen) && envLen > 0) dens = count / envLen;
+        writePore(envLen, count, dens);
+        run("Select None");
+        if (!isNaN(dens)) showMessage(count + " pores.  Density = " + d2s(dens,3) + " pores/um of envelope.");
+        else showMessage(count + " pores recorded.");
+    }
 }
 
 function writeNF(typ, idx, dist, nf) {
@@ -194,26 +188,32 @@ function writePore(envLen, count, dens) {
     selectWindow(TBL); Table.save(_outDir + "TEM_NearFar.csv");
 }
 
-// ---- 32-bit distance map from the traced nucleus (distance to nuclear edge) --
+// ---- 32-bit distance map from the traced membrane LINE (distance to membrane) --
 function buildDistMap() {
-    if (selectionType() < 0) return;
+    st = selectionType();
+    if (!(st == 5 || st == 6 || st == 7)) return;
     orig = getTitle(); w = getWidth(); h = getHeight();
     getPixelSize(u, pw, ph); REF_PW = pw;
+    roiManager("reset"); roiManager("add");     // store the membrane line
     if (isOpen(DMAP)) { selectWindow(DMAP); close(); }
     if (isOpen("__nucBinNF")) { selectWindow("__nucBinNF"); close(); }
     newImage("__nucBinNF", "8-bit black", w, h, 1);
-    selectWindow(orig); roiManager("reset"); roiManager("add");
-    selectWindow("__nucBinNF"); roiManager("select", 0); setColor(255); fill(); run("Select None");
+    selectWindow("__nucBinNF");
+    roiManager("select", 0);                     // restore the line here
+    setForegroundColor(255, 255, 255);
+    run("Line Width...", "line=1");
+    run("Draw", "slice");                        // draw the membrane as 255
+    run("Select None");
     setOption("BlackBackground", true);
     run("Options...", "iterations=1 count=1 black edm=32-bit");
-    run("Invert");
-    run("Distance Map");
+    run("Invert");                               // membrane -> 0, rest -> 255
+    run("Distance Map");                         // each pixel = distance (px) to membrane
     mapT = getTitle();
     if (mapT != "__nucBinNF" && isOpen("__nucBinNF")) { selectWindow("__nucBinNF"); close(); }
     selectWindow(mapT); rename(DMAP);
     selectWindow(orig); roiManager("reset");
 }
-// distance (um) from a pixel coordinate to the nuclear edge
+// distance (um) from a pixel coordinate to the traced membrane
 function distEdgePx(px, py) {
     if (!isOpen(DMAP) || REF_PW <= 0) return NaN;
     cur = getTitle();
