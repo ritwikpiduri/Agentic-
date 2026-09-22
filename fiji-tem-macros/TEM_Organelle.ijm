@@ -30,6 +30,8 @@ var _outDir = "";
 
 var HAVE_REF = false;
 var REF_PERIM = 0;         // traced nucleus perimeter (um), for pore density
+var REF_PW = 0;            // pixel size (um/px) of the image the map was built on
+var DMAP_T = "";           // actual title of the distance-map image
 
 inDir   = getDirectory("Choose the FOLDER of images (high-mag / organelles)");
 _outDir = getDirectory("Choose an OUTPUT folder for TEM_Organelle.csv");
@@ -141,6 +143,7 @@ function actNucleusRef() {
     run("Measure"); m = nResults - 1;
     REF_PERIM = getResult("Perim.", m);
     buildDistMap();
+    saveNucRoi();
     run("Select None");
     HAVE_REF = true;
     showMessage("Nucleus reference set (perimeter " + d2s(REF_PERIM,2) + " um).\nNow mark organelles / pores.");
@@ -231,24 +234,51 @@ function actPores() {
 }
 
 // ---- distance map from the traced nucleus (distance to the nuclear edge) ----
+// Builds a map where every pixel OUTSIDE the nucleus holds its distance (in
+// pixels) to the nearest point on the nuclear envelope. 32-bit so distances
+// are not capped at 255. REF_PW (um/px, from the ORIGINAL image) is used both
+// to place organelle centroids on the map and to convert the map value to um.
 function buildDistMap() {
     if (selectionType() < 0) return;
     orig = getTitle(); w = getWidth(); h = getHeight();
+    getPixelSize(u, pw, ph); REF_PW = pw;
+    // fresh binary mask: nucleus = 255, everything else = 0
     if (isOpen(DMAP)) { selectWindow(DMAP); close(); }
-    newImage(DMAP, "8-bit black", w, h, 1);
+    if (isOpen("__nucBin")) { selectWindow("__nucBin"); close(); }
+    newImage("__nucBin", "8-bit black", w, h, 1);
     selectWindow(orig); roiManager("reset"); roiManager("add");
-    selectWindow(DMAP); roiManager("select", 0); setColor(255); fill(); run("Select None");
-    setOption("BlackBackground", true); run("Invert"); run("Distance Map");
+    selectWindow("__nucBin"); roiManager("select", 0); setColor(255); fill(); run("Select None");
+    // 32-bit Euclidean distance map; invert first so OUTSIDE pixels get the
+    // distance-to-nucleus (EDM measures foreground-to-background distance)
+    setOption("BlackBackground", true);
+    run("Options...", "iterations=1 count=1 black edm=32-bit");
+    run("Invert");
+    run("Distance Map");
+    mapT = getTitle();
+    if (mapT != "__nucBin" && isOpen("__nucBin")) { selectWindow("__nucBin"); close(); }
+    selectWindow(mapT); rename(DMAP); DMAP_T = DMAP;
     selectWindow(orig); roiManager("reset");
 }
 function distEdge(cx, cy) {
-    if (!isOpen(DMAP)) return NaN;
-    cur = getTitle(); selectWindow(DMAP); getPixelSize(u, pw, ph);
-    px = round(cx / pw); py = round(cy / ph);
+    if (!isOpen(DMAP) || REF_PW <= 0) return NaN;
+    cur = getTitle();
+    px = round(cx / REF_PW); py = round(cy / REF_PW);
+    selectWindow(DMAP);
     if (px < 0) px = 0; if (py < 0) py = 0;
     if (px >= getWidth()) px = getWidth() - 1;
     if (py >= getHeight()) py = getHeight() - 1;
-    d = getPixel(px, py) * pw; selectWindow(cur); return d;
+    d = getPixel(px, py) * REF_PW;   // pixels -> um
+    selectWindow(cur);
+    return d;
+}
+// save the traced nucleus outline so near/far can be re-checked / recomputed
+function saveNucRoi() {
+    if (selectionType() < 0) return;
+    roiDir = _outDir + "ROI_nucleus/";
+    File.makeDirectory(roiDir);
+    roiManager("reset"); roiManager("add");
+    roiManager("save", roiDir + noExt(_curImg) + "_nuc.roi");
+    roiManager("reset");
 }
 
 // ---- calibration + helpers ----
