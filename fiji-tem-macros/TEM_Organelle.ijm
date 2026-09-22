@@ -205,18 +205,28 @@ function actOrganelles() {
     run("Select None"); showMessage(i + " " + otype + "(s) recorded.");
 }
 
-// ---- nuclear pores ----
+// ---- nuclear pores: trace the envelope stretch, then count pores on it ----
 function actPores() {
+    setMeas(); setTool("freeline");
+    run("Select None");
+    waitForUser("Envelope for pores",
+        "With the FREEHAND-LINE tool, trace ALONG the stretch of nuclear\n" +
+        "envelope where you will count pores (follow the membrane), then OK.\n" +
+        "(Partial nucleus is fine - just trace the visible stretch.)");
+    envLen = NaN; st = selectionType();
+    if (st == 5 || st == 6 || st == 7) envLen = getValue("Length");
+    run("Select None");
+
     setTool("multipoint");
-    waitForUser("Nuclear pores", "Multi-point tool: CLICK each nuclear pore, then OK.");
+    waitForUser("Nuclear pores", "CLICK each nuclear pore ALONG that stretch, then OK.");
     if (selectionType() != 10) { showMessage("Use the multi-point tool and click the pores."); return; }
     getSelectionCoordinates(xs, ys); count = xs.length;
-    dens = NaN; if (HAVE_REF && REF_PERIM > 0) dens = count / REF_PERIM;
-    writeRow("Pore", "", 1, NaN, NaN, NaN, NaN, NaN, NaN, NaN, NaN, NaN, "", NaN, count, dens);
+    dens = NaN; if (!isNaN(envLen) && envLen > 0) dens = count / envLen;
+    writeRow("Pore", "", 1, NaN, envLen, NaN, NaN, NaN, NaN, NaN, NaN, NaN, "", NaN, count, dens);
     run("Select None");
     pmsg = count + " pores.";
-    if (HAVE_REF && REF_PERIM > 0) pmsg = pmsg + "\nDensity = " + d2s(dens,3) + " pores/um of envelope.";
-    else pmsg = pmsg + "\n(Trace the Nucleus reference first for density.)";
+    if (!isNaN(dens)) pmsg = pmsg + "\nDensity = " + d2s(dens,3) + " pores/um of envelope (over " + d2s(envLen,2) + " um).";
+    else pmsg = pmsg + "\nCount saved. (Trace the envelope line first to also get density.)";
     showMessage(pmsg);
 }
 
