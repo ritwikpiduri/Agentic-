@@ -79,18 +79,25 @@ for (si = 0; si < samples.length; si++) {
     print("");
     print("--- " + smp + " ---");
 
-    // ---------- organelles: ovals (count + near/far) ----------
+    // ---------- organelles: ovals (count + size) ----------
     for (t = 0; t < TYPES.length; t++) {
         ty = TYPES[t];
-        cOval = 0; cNear = 0; cFar = 0; sArea = 0; nArea = 0;
+        cOval = 0; sArea = 0; nArea = 0;
         for (i = 0; i < rSample.length; i++) {
             if (rSample[i] != smp) continue;
             if (rRec[i] != "Organelle") continue;
             if (rType[i] != ty) continue;
             cOval = cOval + 1;
+            if (!isNaN(rArea[i])) { sArea = sArea + rArea[i]; nArea = nArea + 1; }
+        }
+        // ---------- near/far: ONLY from the fixed pass (OrganelleNF rows) ----------
+        cNear = 0; cFar = 0;
+        for (i = 0; i < rSample.length; i++) {
+            if (rSample[i] != smp) continue;
+            if (rRec[i] != "OrganelleNF") continue;
+            if (rType[i] != ty) continue;
             if (rNF[i] == "near") cNear = cNear + 1;
             else if (rNF[i] == "far") cFar = cFar + 1;
-            if (!isNaN(rArea[i])) { sArea = sArea + rArea[i]; nArea = nArea + 1; }
         }
         // ---------- organelles: per-field counter -> density ----------
         totCnt = 0; totField = 0; nFields = 0;
@@ -104,15 +111,18 @@ for (si = 0; si < samples.length; si++) {
         dens = NaN; if (totField > 0) dens = totCnt / totField;
         meanA = NaN; if (nArea > 0) meanA = sArea / nArea;
 
+        pctNear = NaN; if (cNear + cFar > 0) pctNear = 100.0 * cNear / (cNear + cFar);
         Table.set(ty + "_count", r, cOval, OUT);
         Table.set(ty + "_near",  r, cNear, OUT);
         Table.set(ty + "_far",   r, cFar,  OUT);
+        Table.set(ty + "_pct_near", r, pctNear, OUT);
         Table.set(ty + "_meanArea_um2", r, meanA, OUT);
         Table.set(ty + "_dens_per_um2", r, dens, OUT);
         Table.set(ty + "_fields", r, nFields, OUT);
 
-        line = "  " + ty + ": ovals=" + cOval + " (near " + cNear + "/far " + cFar + ")";
+        line = "  " + ty + ": outlined=" + cOval;
         if (nFields > 0) line = line + "   density=" + d2s(dens,4) + " /um2 (" + totCnt + " in " + nFields + " fields)";
+        if (cNear + cFar > 0) line = line + "   near/far=" + cNear + "/" + cFar + " (" + d2s(pctNear,0) + "% near)";
         print(line);
     }
 
