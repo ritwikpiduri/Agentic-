@@ -1,23 +1,27 @@
 // ============================================================================
-//  TEM_NearFar.ijm  --  FAST re-do of organelle near/far only (click, no oval).
+//  TEM_NearFar.ijm  --  organelle NEAR/FAR + NUCLEAR PORES, in one pass.
 //
-//  Use this to redo the distance-to-nucleus / near-far readout, which was wrong
-//  in the first pass (the distance map was miscalibrated). Your organelle AREA,
-//  count and circularity from the first pass are fine -- this only fixes near/far.
+//  Redo of the two readouts that need the nucleus as a reference. Your organelle
+//  AREA, count and circularity from the first pass are fine and are NOT redone.
 //
-//  Per image:
-//    1) TRACE the nucleus (freehand, follow the envelope). Only possible if a
-//       nucleus edge is in the frame -- if none is visible, SKIP the image.
-//    2) For each organelle type, just CLICK each organelle (multipoint).
-//       Each click's distance to the nuclear edge is measured -> near / far.
+//  Per image you get a menu:
+//    Near/far   -> TRACE the nucleus (freehand, follow the envelope), then just
+//                  CLICK each organelle (multipoint). Each click's distance to
+//                  the nuclear edge -> near / far.  (No oval needed = fast.)
+//    Pores      -> TRACE ALONG a stretch of nuclear envelope (freehand LINE),
+//                  then CLICK each pore on it. -> count + pores per um.
+//    NEXT       -> go to the next image.
+//    QUIT       -> save and stop.
+//  You can do near/far AND pores on the same image before NEXT.
+//  If no nucleus edge is in the frame, just hit NEXT (both need a nucleus).
 //
-//  Output: TEM_NearFar.csv  (RecordType = "OrganelleNF"; one row per organelle:
-//          Type, Dist_to_nucleus_um, NearFar). TEM_Analyze.ijm reads these for
-//          the near/far summary. Saved after every entry (Esc / QUIT safe).
-//  Also saves each traced nucleus outline in ROI_nucleus/ (so it's auditable).
+//  Output: TEM_NearFar.csv, saved after every entry (Esc / QUIT safe).
+//    RecordType "OrganelleNF": Type, Dist_to_nucleus_um, NearFar
+//    RecordType "Pore":        Perimeter_um (envelope length), PoreCount, Pores_per_um
+//  TEM_Analyze.ijm reads both. Also saves each traced nucleus in ROI_nucleus/.
 //
-//  Run ONE sample folder at a time (or point it at all of them -- the Sample
-//  column is your folder name, so samples stay separate in the output).
+//  Run all sample folders (or one at a time) -- the Sample column is your folder
+//  name, so samples stay separated in the output.
 // ============================================================================
 
 var CAL_MAG = newArray(2000,   2600,     3400,    11000,    17500,    22000);
@@ -58,7 +62,7 @@ NEAR_FAR_UM = Dialog.getNumber();
 files = listTiffs(inDir);
 if (files.length == 0) { showMessage("No .tif/.tiff images found."); exit; }
 
-startAt = getNumber("Start from image number (1 = beginning).", 1);
+startAt = getNumber("Start from image number (1 = beginning).\nThe title bar shows the number you were on.", 1);
 if (startAt < 1) startAt = 1;
 
 setBatchMode(false);
@@ -74,17 +78,22 @@ for (f = startAt - 1; f < files.length; f++) {
         autoCalibrate();
         run("Enhance Contrast", "saturated=0.35");
 
-        Dialog.create("Image " + (f+1) + " / " + files.length);
-        Dialog.addMessage(_curImg);
-        Dialog.addChoice("Action:", newArray(
-            "Measure near/far  (trace nucleus, then click organelles)",
-            "SKIP  (no nucleus edge in this frame)",
-            "QUIT and save"), "Measure near/far  (trace nucleus, then click organelles)");
-        Dialog.show();
-        a = Dialog.getChoice();
-        if      (startsWith(a, "Measure")) measureNearFar();
-        else if (startsWith(a, "QUIT"))    quit = true;
-
+        imgDone = false;
+        while (!imgDone) {
+            Dialog.create("Image " + (f+1) + " / " + files.length);
+            Dialog.addMessage(_curImg);
+            Dialog.addChoice("Action:", newArray(
+                "Near/far  (trace nucleus, click organelles)",
+                "Nuclear pores  (trace envelope, click pores)",
+                "NEXT image  /  SKIP",
+                "QUIT and save"), "Near/far  (trace nucleus, click organelles)");
+            Dialog.show();
+            a = Dialog.getChoice();
+            if      (startsWith(a, "Near/far"))      measureNearFar();
+            else if (startsWith(a, "Nuclear pores")) measurePores();
+            else if (startsWith(a, "NEXT"))          imgDone = true;
+            else if (startsWith(a, "QUIT"))          { imgDone = true; quit = true; }
+        }
         if (isOpen(DMAP)) { selectWindow(DMAP); close(); }
         if (nImages > 0) { selectWindow(_curImg); close(); }
         done = done + 1;
@@ -95,13 +104,14 @@ Table.save(_outDir + "TEM_NearFar.csv");
 showMessage("Done", "Processed " + done + " image(s).\nSaved: " + _outDir + "TEM_NearFar.csv");
 
 // ============================================================================
+// ---- organelle near/far: trace nucleus once, then click each organelle ----
 function measureNearFar() {
     setMeas(); setTool("freehand");
     run("Select None");
     waitForUser("Trace the nucleus",
-        "Trace AROUND the nucleus edge shown in this frame (freehand,\n" +
-        "follow the envelope), then OK.  Partial nucleus is fine.");
-    if (selectionType() < 0) { showMessage("Nothing traced - image skipped."); return; }
+        "Trace AROUND the nucleus edge in this frame (freehand, follow the\n" +
+        "envelope), then OK.  Partial nucleus is fine.");
+    if (selectionType() < 0) { showMessage("Nothing traced - near/far skipped."); return; }
     buildDistMap();
     saveNucRoi();
     run("Select None");
@@ -121,7 +131,7 @@ function measureNearFar() {
                 d = distEdgePx(xs[k], ys[k]);
                 nf = "far"; if (!isNaN(d) && d <= NEAR_FAR_UM) nf = "near";
                 if (nf == "near") cNear = cNear + 1; else cFar = cFar + 1;
-                writeRow(ty, k + 1, d, nf);
+                writeNF(ty, k + 1, d, nf);
             }
         }
         run("Select None");
@@ -130,7 +140,32 @@ function measureNearFar() {
     }
 }
 
-function writeRow(typ, idx, dist, nf) {
+// ---- nuclear pores: trace the envelope stretch, then click the pores on it ----
+function measurePores() {
+    setMeas(); setTool("freeline");
+    run("Select None");
+    waitForUser("Envelope for pores",
+        "With the FREEHAND-LINE tool, trace ALONG the stretch of nuclear\n" +
+        "envelope where you will count pores (follow the membrane), then OK.\n" +
+        "(Partial nucleus is fine - just trace the visible stretch.)");
+    envLen = NaN; st = selectionType();
+    if (st == 5 || st == 6 || st == 7) envLen = getValue("Length");
+    run("Select None");
+
+    setTool("multipoint");
+    waitForUser("Nuclear pores", "CLICK each nuclear pore ALONG that stretch, then OK.");
+    if (selectionType() != 10) { showMessage("Use the multi-point tool and click the pores."); return; }
+    getSelectionCoordinates(xs, ys); count = xs.length;
+    dens = NaN; if (!isNaN(envLen) && envLen > 0) dens = count / envLen;
+    writePore(envLen, count, dens);
+    run("Select None");
+    pmsg = count + " pores.";
+    if (!isNaN(dens)) pmsg = pmsg + "\nDensity = " + d2s(dens,3) + " pores/um of envelope (over " + d2s(envLen,2) + " um).";
+    else pmsg = pmsg + "\nCount saved. (Trace the envelope line first to also get density.)";
+    showMessage(pmsg);
+}
+
+function writeNF(typ, idx, dist, nf) {
     r = Table.size(TBL);
     smp = folderOf();
     Table.set("Image", r, _curImg, TBL);
@@ -141,6 +176,20 @@ function writeRow(typ, idx, dist, nf) {
     Table.set("Dist_to_nucleus_um", r, dist, TBL);
     Table.set("NearFar", r, nf, TBL);
     Table.set("Cutoff_um", r, NEAR_FAR_UM, TBL);
+    Table.update(TBL);
+    selectWindow(TBL); Table.save(_outDir + "TEM_NearFar.csv");
+}
+
+function writePore(envLen, count, dens) {
+    r = Table.size(TBL);
+    smp = folderOf();
+    Table.set("Image", r, _curImg, TBL);
+    Table.set("Sample", r, smp, TBL);
+    Table.set("RecordType", r, "Pore", TBL);
+    Table.set("Type", r, "", TBL);
+    Table.set("Perimeter_um", r, envLen, TBL);
+    Table.set("PoreCount", r, count, TBL);
+    Table.set("Pores_per_um", r, dens, TBL);
     Table.update(TBL);
     selectWindow(TBL); Table.save(_outDir + "TEM_NearFar.csv");
 }
